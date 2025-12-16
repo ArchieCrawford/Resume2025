@@ -1,0 +1,11 @@
+{
+  "name": "CyberDesk Terminal",
+  "revisionLabel": "Fix resume.json 404 error with relative path",
+  "description": "",
+  "mode": "Universal",
+  "exportDate": "2025-12-16T03:38:56.086Z",
+  "assetCount": 3,
+  "assetTypes": [
+    "webp"
+  ]
+}

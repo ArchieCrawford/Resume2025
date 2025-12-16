@@ -1,0 +1,301 @@
+{
+  "version": "1.0",
+  "lastUpdated": "2025-12-16",
+  "identity": {
+    "name": "Archie Crawford Jr",
+    "handle": "archie",
+    "headline": "Security Engineer • SIEM/Log Analysis • Endpoint & Email Security • Cloud/Identity",
+    "location": "United States (open to remote)"
+  },
+  "contact": {
+    "phone": "7573535324",
+    "email": "archie.crawford1@gmail.com",
+    "location": "Atlanta, GA (open to remote)",
+    "linkedin": "https://www.linkedin.com/in/archie-crawford-jr-9a71126a/",
+    "github": "https://github.com/ArchieCrawford",
+    "website": "https://archiecrawford.xyz"
+  },
+  "terminal": {
+    "prompt": "archie@workstation:~$",
+    "suggestedCommands": [
+      "intro",
+      "skills",
+      "experience",
+      "projects",
+      "contact",
+      "download"
+    ],
+    "aliases": {
+      "linkedin": "open linkedin",
+      "github": "open github",
+      "pdf": "download"
+    }
+  },
+  "intro": {
+    "short": "Security engineer who turns messy telemetry into clear decisions—log analysis, endpoint hardening, email security, and cloud/identity controls.",
+    "lines": [
+      "Security engineer focused on detection + hardening: SIEM/log pipelines, endpoint controls, and secure cloud/identity practices.",
+      "I build practical tooling (collectors, dashboards, scripts) and partner with teams to reduce risk and speed response."
+    ],
+    "values": [
+      "Ship automation",
+      "Keep it measurable",
+      "Keep it usable"
+    ]
+  },
+  "strengths": [
+    "SSO / SAML integrations (Okta)",
+    "Linux",
+    "Elasticsearch & Splunk",
+    "Vulnerability Management",
+    "Proofpoint Email Protection",
+    "MDM (Lookout)",
+    "Palo Alto Firewall / FireMon",
+    "Tenable / Nessus / Qualys / Rapid7",
+    "Microsoft Azure",
+    "Email Security",
+    "Lookout",
+    "Penetration Testing",
+    "SPF / DMARC / DKIM",
+    "API Management",
+    "Windows Event Collection",
+    "AppOmni",
+    "CrowdStrike",
+    "Carbon Black",
+    "LogRhythm SIEM",
+    "SCCM",
+    "RSA NetWitness SIEM",
+    "Jira / Confluence",
+    "Data Loss Prevention (DLP)",
+    "Endpoint Management"
+  ],
+  "skills": {
+    "Security Engineering": [
+      "Log collection & correlation (Windows Event Collector, syslog)",
+      "Email security (routing, anti-phishing controls, authentication records)",
+      "Vulnerability management (scanning, remediation workflows)",
+      "Endpoint security & management (policy, inventory, exceptions)"
+    ],
+    "SIEM / Monitoring": [
+      "Splunk",
+      "Elastic",
+      "LogRhythm",
+      "RSA NetWitness",
+      "AlienVault"
+    ],
+    "Endpoint / Tools": [
+      "CrowdStrike",
+      "Carbon Black",
+      "SCCM",
+      "AppOmni",
+      "Lookout",
+      "Proofpoint"
+    ],
+    "Networking": [
+      "Wireshark",
+      "PCAP analysis",
+      "Firewall rule management (Fortinet, Palo Alto)"
+    ],
+    "Cloud / Systems": [
+      "Microsoft Azure",
+      "Linux server administration",
+      "SSH",
+      "Apache/MySQL/PHP basics"
+    ],
+    "Scripting": [
+      "PowerShell"
+    ]
+  },
+  "projects": [
+    {
+      "name": "3D Terminal Resume",
+      "summary": "Interactive Three.js portfolio with terminal-style commands driven by resume.json.",
+      "stack": [
+        "Three.js",
+        "HTML/CSS",
+        "JavaScript"
+      ],
+      "links": [
+        {
+          "label": "Live",
+          "url": ""
+        },
+        {
+          "label": "Repo",
+          "url": ""
+        }
+      ]
+    }
+  ],
+  "experience": [
+    {
+      "company": "Moderna",
+      "location": "Atlanta, GA",
+      "dates": {
+        "start": "2022-12",
+        "end": "2024-02"
+      },
+      "title": "Security Engineering",
+      "employmentType": "Contract",
+      "highlights": [
+        "Created and managed a Windows Event Collector to collect Windows logs.",
+        "Created and managed an rsyslog server to collect logs from Linux servers.",
+        "Integrated Lookout Mobile to monitor and manage iPhone devices.",
+        "Built Splunk dashboards to view SQL logs.",
+        "Managed USB exception program for endpoint controls.",
+        "Monitored and managed Tenable scans for penetration testing of company websites.",
+        "Partnered with teams to remove Workspace ONE and integrate Intune.",
+        "Sent monthly metrics reports on mobile statistics."
+      ]
+    },
+    {
+      "company": "Ace Group LLC",
+      "location": "Atlanta, GA",
+      "dates": {
+        "start": "2021-09",
+        "end": "2022-12"
+      },
+      "title": "Security Engineer",
+      "employmentType": "",
+      "highlights": [
+        "Implemented Okta SSO for SaaS applications.",
+        "Installed Windows Event Collector to manage Windows environment logging.",
+        "Managed endpoint inventory and accountability for active endpoints.",
+        "Built SCCM to support vulnerability management program (incl. PowerShell automation).",
+        "Managed AppOmni to secure cloud applications.",
+        "Used Wireshark to troubleshoot network issues and validate traffic flows.",
+        "Created and used PowerShell scripts to mitigate issues and vulnerabilities."
+      ]
+    },
+    {
+      "company": "Community Loans of America",
+      "location": "Atlanta, GA",
+      "dates": {
+        "start": "2019-01",
+        "end": "2021-11"
+      },
+      "title": "Cloud Security Engineer",
+      "employmentType": "Full-Time",
+      "highlights": [
+        "Implemented Nextcloud on remote CentOS servers for secure document uploads containing PII.",
+        "Implemented and monitored Carbon Black, Elasticsearch, and AlienVault.",
+        "Performed penetration testing on web applications using Nessus vulnerability scanning.",
+        "Configured cloud servers via SSH and installed Apache, MySQL, and PHP."
+      ]
+    },
+    {
+      "company": "Unisys",
+      "location": "Augusta, GA",
+      "dates": {
+        "start": "2018-11",
+        "end": "2019-01"
+      },
+      "title": "Cyber Security Analyst",
+      "employmentType": "Contract",
+      "highlights": [
+        "Analyzed events in LogRhythm SIEM to determine whether network traffic was malicious.",
+        "Applied client security policies/procedures to detect, analyze, and prevent security breaches using SIEM and monitoring tools.",
+        "Managed firewall rules using Fortinet firewall software."
+      ]
+    },
+    {
+      "company": "American Express",
+      "location": "Remote",
+      "dates": {
+        "start": "2016-10",
+        "end": "2018-10"
+      },
+      "title": "Inter Internet Security Specialist (Email Security Team)",
+      "employmentType": "Contract",
+      "highlights": [
+        "Worked on infrastructure security projects focusing on email security.",
+        "Managed email routing within Proofpoint for security purposes.",
+        "Managed SPF records and Defense of Domains."
+      ]
+    },
+    {
+      "company": "Data Path",
+      "location": "Duluth, GA",
+      "dates": {
+        "start": "2016-10",
+        "end": "2017-11"
+      },
+      "title": "Cyber Security Operations Center Specialist",
+      "employmentType": "Full-Time",
+      "highlights": [
+        "Analyzed PCAPs to determine network intrusions using AlienVault SIEM.",
+        "Performed real-time analysis and correlation of logs/alerts across client devices to determine whether events constituted security incidents."
+      ]
+    },
+    {
+      "company": "Dell SecureWorks",
+      "location": "Atlanta, GA",
+      "dates": {
+        "start": "2015-08",
+        "end": "2016-04"
+      },
+      "title": "Security Operations Center Ops Sr Analyst / Inter Internet Security Specialist",
+      "employmentType": "Full-Time",
+      "highlights": [
+        "Monitored and responded to security incidents from IDS/IPS devices; partnered with vendors to troubleshoot intrusions.",
+        "Worked with proprietary and commercial consoles (local and remote) supporting 1,000+ clients.",
+        "Provided client-facing log analysis to determine true positives vs false positives."
+      ]
+    },
+    {
+      "company": "AT&T",
+      "location": "Atlanta, GA",
+      "dates": {
+        "start": "2015-01",
+        "end": "2015-08"
+      },
+      "title": "Customer Advocacy Manager",
+      "employmentType": "Internship",
+      "highlights": [
+        "Analyzed trouble tickets and drove them to completion, implementing fixes.",
+        "Managed a team of technicians and audited tickets to ensure quality analysis.",
+        "Provided customer support and troubleshooting for business voice/internet services."
+      ]
+    },
+    {
+      "company": "United States Army",
+      "location": "Virginia, VA",
+      "dates": {
+        "start": "2007-07",
+        "end": "2014-05"
+      },
+      "title": "Company Commander / Project Manager",
+      "employmentType": "Full-Time",
+      "highlights": [
+        "Served as information security officer for a company of 120 employees; briefed security techniques and delivered security training.",
+        "Managed physical security program and maintained audit readiness."
+      ]
+    }
+  ],
+  "education": [
+    {
+      "degree": "Master of Science, Cyber Security",
+      "school": "Liberty University",
+      "location": "Lynchburg, VA",
+      "graduationYear": 2017
+    },
+    {
+      "degree": "Bachelor of Arts, Graphic Design",
+      "school": "Norfolk State University",
+      "location": "Norfolk, VA",
+      "graduationYear": 2009
+    }
+  ],
+  "certifications": [
+    {
+      "name": "CompTIA Security+",
+      "issuer": "",
+      "year": null
+    },
+    {
+      "name": "Metro Atlanta ISSA Member",
+      "issuer": "ISSA",
+      "year": null
+    }
+  ]
+}

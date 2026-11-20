@@ -13,6 +13,14 @@ export class Terminal {
     this.setupEventListeners();
   }
 
+  setWalkHandler(fn) {
+    this.onWalk = fn;
+  }
+
+  setCreditsHandler(fn) {
+    this.onCredits = fn;
+  }
+
   setResumeData(data) {
     this.resumeData = data;
     this.commands = this.setupCommands(); // Refresh commands with new data
@@ -35,7 +43,8 @@ export class Terminal {
           // Group commands
           const resumeCommands = ['intro', 'skills', 'experience', 'education', 'contact', 'projects', 'certs'];
           const actionCommands = ['download', 'linkedin', 'github', 'website'];
-          const systemCommands = ['help', 'clear', 'history', 'date', 'whoami'];
+          const exploreCommands = ['walk', 'explore'];
+          const systemCommands = ['help', 'clear', 'history', 'date', 'whoami', 'credits'];
           
           output += 'Resume Commands:\n';
           resumeCommands.forEach(cmd => {
@@ -44,6 +53,13 @@ export class Terminal {
             }
           });
           
+          output += '\nExplore:\n';
+          exploreCommands.forEach(cmd => {
+            if (this.commands[cmd]) {
+              output += `  ${cmd.padEnd(15)} - ${this.commands[cmd].description}\n`;
+            }
+          });
+
           output += '\nActions:\n';
           actionCommands.forEach(cmd => {
             if (this.commands[cmd]) {
@@ -96,6 +112,27 @@ export class Terminal {
             }
           }
           return '\nhacker@cyberdesk\n';
+        },
+      },
+      walk: {
+        description: 'Walk the career neighborhood',
+        execute: () => {
+          if (this.onWalk) this.onWalk();
+          return '\nOpening the neighborhood. Stand up, then walk out to the street.\n';
+        },
+      },
+      explore: {
+        description: 'Walk the career neighborhood',
+        execute: () => {
+          if (this.onWalk) this.onWalk();
+          return '\nOpening the neighborhood. Stand up, then walk out to the street.\n';
+        },
+      },
+      credits: {
+        description: 'Show 3D asset credits',
+        execute: () => {
+          if (this.onCredits) this.onCredits();
+          return '\nOpening asset credits.\n';
         },
       },
       history: {

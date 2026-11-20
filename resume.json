@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "lastUpdated": "2025-12-16",
+  "lastUpdated": "2026-11-19",
   "identity": {
     "name": "Archie Crawford Jr",
     "handle": "archie",
@@ -23,7 +23,8 @@
       "experience",
       "projects",
       "contact",
-      "download"
+      "download",
+      "walk"
     ],
     "aliases": {
       "linkedin": "open linkedin",
@@ -67,7 +68,8 @@
     "RSA NetWitness SIEM",
     "Jira / Confluence",
     "Data Loss Prevention (DLP)",
-    "Endpoint Management"
+    "Endpoint Management",
+    "Tanium (Enforce / endpoint management)"
   ],
   "skills": {
     "Security Engineering": [
@@ -89,7 +91,8 @@
       "SCCM",
       "AppOmni",
       "Lookout",
-      "Proofpoint"
+      "Proofpoint",
+      "Tanium (Enforce)"
     ],
     "Networking": [
       "Wireshark",
@@ -118,16 +121,31 @@
       "links": [
         {
           "label": "Live",
-          "url": ""
+          "url": "TODO-confirm"
         },
         {
           "label": "Repo",
-          "url": ""
+          "url": "https://github.com/ArchieCrawford/Resume2025"
         }
       ]
     }
   ],
   "experience": [
+    {
+      "company": "Latitude Services",
+      "location": "",
+      "dates": {
+        "start": "TODO-confirm",
+        "end": "present"
+      },
+      "title": "IT Security Consultant / Security SME",
+      "employmentType": "Contract/Consulting",
+      "highlights": [
+        "Served as a security subject-matter expert on client projects.",
+        "Reported endpoint compliance across security tools (Tanium, CrowdStrike, Rapid7, Illumio, Jamf, Intune, and disk encryption), with automated Jira ticketing for non-compliant hosts.",
+        "Designed enterprise browser and VS Code extension allowlisting and monitoring policy with Tanium Enforce."
+      ]
+    },
     {
       "company": "Moderna",
       "location": "Atlanta, GA",
@@ -205,7 +223,7 @@
         "start": "2016-10",
         "end": "2018-10"
       },
-      "title": "Inter Internet Security Specialist (Email Security Team)",
+      "title": "Internet Security Specialist (Email Security Team)",
       "employmentType": "Contract",
       "highlights": [
         "Worked on infrastructure security projects focusing on email security.",
@@ -234,7 +252,7 @@
         "start": "2015-08",
         "end": "2016-04"
       },
-      "title": "Security Operations Center Ops Sr Analyst / Inter Internet Security Specialist",
+      "title": "Security Operations Center Ops Sr Analyst / Internet Security Specialist",
       "employmentType": "Full-Time",
       "highlights": [
         "Monitored and responded to security incidents from IDS/IPS devices; partnered with vendors to troubleshoot intrusions.",

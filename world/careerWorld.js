@@ -399,6 +399,7 @@ export class CareerWorld {
     model.position.z = -((measured.min.z + measured.max.z) / 2) * scale;
     this.player.add(model);
     this.scene.add(this.player);
+    this.styleCharacter(model);
     this.mixer = new THREE.AnimationMixer(model);
     const find = (suffix) => gltf.animations.find((clip) => clip.name.endsWith(suffix));
     for (const [key, suffix] of [['idle', 'Idle'], ['walk', 'Walk'], ['sit', 'SitDown'], ['stand', 'StandUp']]) {
@@ -411,6 +412,96 @@ export class CareerWorld {
     this.mixer.addEventListener('finished', (event) => {
       if (event.action === this.actions.stand) this.completeRise();
     });
+  }
+
+  styleCharacter(model) {
+    const skin = {
+      Skin: '#3B261C',
+      Face: '#4E3426',
+    };
+    let hairMesh = null;
+    let faceMesh = null;
+    model.traverse((obj) => {
+      if (!obj.isMesh || !obj.material) return;
+      const hex = skin[obj.material.name];
+      if (hex) obj.material.color.set(hex);
+      if (obj.material.name === 'Hair') hairMesh = obj;
+      if (obj.material.name === 'Face') faceMesh = obj;
+    });
+
+    model.updateWorldMatrix(true, true);
+    const head = model.getObjectByName('Head');
+    const shoulderL = model.getObjectByName('ShoulderL') || model.getObjectByName('Shoulder.L');
+    const shoulderR = model.getObjectByName('ShoulderR') || model.getObjectByName('Shoulder.R');
+    if (!head || !hairMesh || !faceMesh) return;
+
+    const hairBox = worldBoxOf(hairMesh);
+    const faceBox = worldBoxOf(faceMesh);
+    const center = hairBox.getCenter(new THREE.Vector3());
+    const faceCenter = faceBox.getCenter(new THREE.Vector3());
+    const forward = faceCenter.clone().sub(center);
+    forward.y = 0;
+    if (forward.lengthSq() < 1e-6) forward.set(0, 0, 1);
+    forward.normalize();
+    const forwardAngle = Math.atan2(forward.x, forward.z);
+    const size = hairBox.getSize(new THREE.Vector3());
+    const shoulder = new THREE.Vector3();
+    const shoulderY = ((shoulderL ? shoulderPoint(shoulderL, shoulder) : center.y - 0.4)
+      + (shoulderR ? shoulderPoint(shoulderR, shoulder) : center.y - 0.4)) / 2;
+
+    const materials = [0x1b140f, 0x2a1c14, 0x120e0b].map((color) => new THREE.MeshStandardMaterial({
+      color,
+      roughness: 0.84,
+      metalness: 0,
+    }));
+    const locs = new THREE.Group();
+    locs.name = 'locs';
+
+    const placeLoc = (angle, yLift, radial, length, thick) => {
+      const origin = center.clone();
+      origin.x += Math.sin(angle) * size.x * radial;
+      origin.z += Math.cos(angle) * size.z * radial;
+      origin.y += yLift;
+      const out = Math.sin(angle - forwardAngle);
+      const back = -Math.cos(angle - forwardAngle);
+      const curve = new THREE.CatmullRomCurve3([
+        new THREE.Vector3(0, 0.01, 0),
+        new THREE.Vector3(out * 0.07, -length * 0.28, back * 0.04),
+        new THREE.Vector3(out * 0.1, -length * 0.62, back * 0.03),
+        new THREE.Vector3(out * 0.08, -length, back * 0.01),
+      ]);
+      const mesh = new THREE.Mesh(
+        new THREE.TubeGeometry(curve, 7, thick, 6, false),
+        materials[Math.abs(Math.round(angle * 4)) % materials.length],
+      );
+      mesh.castShadow = !this.mobile;
+      mesh.frustumCulled = false;
+      const loc = new THREE.Group();
+      loc.position.copy(origin);
+      loc.add(mesh);
+      locs.add(loc);
+    };
+
+    const around = 20;
+    for (let i = 0; i < around; i += 1) {
+      const angle = forwardAngle + (i / around) * Math.PI * 2 + 0.08;
+      const front = Math.cos(angle - forwardAngle);
+      if (front > 0.62) continue;
+      const rootY = center.y + size.y * (front > 0.15 ? 0.08 : 0.22);
+      const length = Math.max(0.16, (rootY - shoulderY) * (front > 0.15 ? 0.42 : 0.62));
+      placeLoc(angle, rootY - center.y, front > 0.15 ? 0.44 : 0.48, length, 0.02 + (i % 3) * 0.004);
+    }
+    const cap = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12), materials[0]);
+    cap.scale.set(size.x * 0.44, size.y * 0.4, size.z * 0.38);
+    cap.position.copy(center).addScaledVector(forward, -size.z * 0.08);
+    cap.castShadow = !this.mobile;
+    cap.frustumCulled = false;
+    locs.add(cap);
+
+    hairMesh.visible = false;
+    this.scene.add(locs);
+    locs.updateWorldMatrix(true, true);
+    head.attach(locs);
   }
 
   seat() {
@@ -762,6 +853,27 @@ export class CareerWorld {
     this.controls.yaw = yaw;
     this.player.rotation.y = yaw + MODEL_YAW;
   }
+}
+
+function worldBoxOf(mesh) {
+  mesh.geometry.computeBoundingBox();
+  const source = mesh.geometry.boundingBox;
+  const box = new THREE.Box3();
+  const corner = new THREE.Vector3();
+  for (const x of [source.min.x, source.max.x]) {
+    for (const y of [source.min.y, source.max.y]) {
+      for (const z of [source.min.z, source.max.z]) {
+        corner.set(x, y, z).applyMatrix4(mesh.matrixWorld);
+        box.expandByPoint(corner);
+      }
+    }
+  }
+  return box;
+}
+
+function shoulderPoint(bone, target) {
+  bone.getWorldPosition(target);
+  return target.y;
 }
 
 function boneSpan(root) {

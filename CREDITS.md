@@ -18,6 +18,7 @@ License: [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/)
 
 - Ultimate Animated Character Pack, Suit male, with Idle, Walk, SitDown, and StandUp clips. <https://quaternius.com/packs/ultimatedanimatedcharacter.html>
 - Mirror: <https://opengameart.org/content/animated-characters-pack>
+- The skin tone and shoulder-length locs are an original edit on that CC0 mesh. The locs are plain tube geometry parented to the head bone, not a separate downloaded model.
 
 ## Poly Haven (CC0)
 

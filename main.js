@@ -4,6 +4,9 @@ import { ParticleSystem } from './particles.js';
 import { CameraController } from './camera.js';
 import { Terminal } from './terminal.js';
 import { ResumeViewer } from './resumeViewer.js';
+import { prefersFallback } from './world/places.js';
+import { showFallback, hideFallback } from './world/fallbackView.js';
+import { openCredits } from './world/credits.js';
 
 class HackerDeskApp {
   constructor() {
@@ -22,6 +25,8 @@ class HackerDeskApp {
     
     this.clock = new THREE.Clock();
     this.isReady = false;
+    this.mode = 'desk';
+    this.world = null;
     
     this.init();
   }
@@ -48,6 +53,10 @@ class HackerDeskApp {
     // Setup terminal with resume data
     this.terminal = new Terminal(this.resumeData);
     this.terminal.updatePrompt(); // Update prompt with user's name
+    this.terminal.setWalkHandler(() => this.enterWalk());
+    this.terminal.setCreditsHandler(() => openCredits());
+    document.getElementById('walk-btn')?.addEventListener('click', () => this.enterWalk());
+    document.getElementById('credits-btn')?.addEventListener('click', () => openCredits());
     
     // Setup resume viewer
     this.resumeViewer = new ResumeViewer(this.resumeData);
@@ -162,12 +171,96 @@ class HackerDeskApp {
     this.camera.updateProjectionMatrix();
     
     this.renderer.setSize(width, height);
+    this.world?.resize(width, height);
+  }
+
+  showLoader(text) {
+    this.loadingScreen.style.display = 'flex';
+    this.loadingScreen.classList.remove('hidden');
+    const label = this.loadingScreen.querySelector('div') || this.loadingScreen;
+    label.textContent = text;
+  }
+
+  hideLoader() {
+    this.loadingScreen.classList.add('hidden');
+    setTimeout(() => {
+      if (this.loadingScreen.classList.contains('hidden')) {
+        this.loadingScreen.style.display = 'none';
+      }
+    }, 400);
+  }
+
+  async enterWalk(force3d = false) {
+    if (this.mode === 'loading') return;
+    const pref = prefersFallback();
+    if (!force3d && pref.fallback) {
+      this.openTextNeighborhood(pref.reduce
+        ? 'Reduced motion is on, so this is the text version of the neighborhood.'
+        : 'This device looks low-power, so this is the text version of the neighborhood.');
+      return;
+    }
+    hideFallback();
+    this.mode = 'loading';
+    this.terminal.hide();
+    this.uiButtons.classList.remove('visible');
+    this.showLoader('Loading the neighborhood…');
+    try {
+      if (!this.world) {
+        const { CareerWorld } = await import('./world/careerWorld.js');
+        this.world = new CareerWorld(this.renderer, this.resumeData, {
+          reduced: pref.reduce,
+          onExit: () => this.exitWalk(),
+          onFallback: () => this.openTextNeighborhood('Text version of every stop on the street.'),
+          onCredits: () => openCredits(),
+        });
+        await this.world.load((progress) => {
+          this.showLoader(`Loading the neighborhood… ${Math.round(progress * 100)}%`);
+        });
+      }
+      this.hideLoader();
+      this.mode = 'world';
+      this.world.enter();
+    } catch (error) {
+      console.error(error);
+      this.hideLoader();
+      this.mode = 'desk';
+      this.uiButtons.classList.add('visible');
+      this.terminal.show();
+      this.terminal.write('\nThe neighborhood could not be loaded. The terminal still works.\n');
+    }
+  }
+
+  openTextNeighborhood(reason) {
+    if (this.world && this.mode === 'world') this.world.exit();
+    this.mode = 'list';
+    this.terminal.hide();
+    this.uiButtons.classList.remove('visible');
+    showFallback(this.resumeData, {
+      reason,
+      onClose: () => this.exitWalk(),
+      onTry3d: () => this.enterWalk(true),
+    });
+  }
+
+  exitWalk() {
+    hideFallback();
+    this.world?.exit();
+    this.mode = 'desk';
+    this.uiButtons.classList.add('visible');
+    this.terminal.show();
   }
 
   animate() {
     requestAnimationFrame(() => this.animate());
-    
+
+    const dt = Math.min(this.clock.getDelta(), 0.05);
     if (!this.isReady) return;
+
+    if (this.mode === 'world' && this.world?.ready) {
+      this.world.update(dt);
+      this.renderer.render(this.world.scene, this.world.camera);
+      return;
+    }
     
     const time = Date.now();
     

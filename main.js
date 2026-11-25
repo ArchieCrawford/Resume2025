@@ -53,9 +53,15 @@ class HackerDeskApp {
     // Setup terminal with resume data
     this.terminal = new Terminal(this.resumeData);
     this.terminal.updatePrompt(); // Update prompt with user's name
-    this.terminal.setWalkHandler(() => this.enterWalk());
+    this.terminal.setWalkHandler(() => this.goOutside());
     this.terminal.setCreditsHandler(() => openCredits());
-    document.getElementById('walk-btn')?.addEventListener('click', () => this.enterWalk());
+    document.getElementById('walk-btn')?.addEventListener('click', () => this.goOutside());
+    document.getElementById('go-outside')?.addEventListener('click', () => this.goOutside());
+    document.getElementById('term-close')?.addEventListener('click', (event) => {
+      event.stopPropagation();
+      this.goOutside();
+    });
+    this.container.addEventListener('pointerdown', (event) => this.onDesktopClick(event));
     document.getElementById('credits-btn')?.addEventListener('click', () => openCredits());
     
     // Setup resume viewer
@@ -154,12 +160,12 @@ class HackerDeskApp {
     
     // Show UI buttons after a short delay
     setTimeout(() => {
-      this.uiButtons.classList.add('visible');
+      if (this.mode === 'desk') this.uiButtons.classList.add('visible');
     }, 2000);
     
     // Show terminal after camera animation completes
     setTimeout(() => {
-      this.terminal.show();
+      if (this.mode === 'desk') this.terminal.show();
     }, 3500); // Slightly after camera animation
   }
 
@@ -190,20 +196,31 @@ class HackerDeskApp {
     }, 400);
   }
 
-  async enterWalk(force3d = false) {
+  goOutside() {
+    this.enterWalk(false, { drive: true });
+  }
+
+  onDesktopClick(event) {
+    if (this.mode !== 'desk' || !this.isReady || !this.terminal.isVisible()) return;
+    const target = event.target instanceof Element ? event.target : event.target?.parentElement;
+    if (!target || target.closest('button, a, input, textarea, #terminal-overlay, #resume-overlay, #credits-overlay, #ui-buttons')) return;
+    this.goOutside();
+  }
+
+  async enterWalk(force3d = false, options = {}) {
     if (this.mode === 'loading') return;
     const pref = prefersFallback();
     if (!force3d && pref.fallback) {
       this.openTextNeighborhood(pref.reduce
-        ? 'Reduced motion is on, so this is the text version of the neighborhood.'
-        : 'This device looks low-power, so this is the text version of the neighborhood.');
+        ? 'Reduced motion is on, so this is the text version of the circuit.'
+        : 'This device looks low-power, so this is the text version of the circuit.');
       return;
     }
     hideFallback();
     this.mode = 'loading';
     this.terminal.hide();
     this.uiButtons.classList.remove('visible');
-    this.showLoader('Loading the neighborhood…');
+    this.showLoader('Loading the career circuit…');
     try {
       if (!this.world) {
         const { CareerWorld } = await import('./world/careerWorld.js');
@@ -214,19 +231,19 @@ class HackerDeskApp {
           onCredits: () => openCredits(),
         });
         await this.world.load((progress) => {
-          this.showLoader(`Loading the neighborhood… ${Math.round(progress * 100)}%`);
+          this.showLoader(`Loading the career circuit… ${Math.round(progress * 100)}%`);
         });
       }
       this.hideLoader();
       this.mode = 'world';
-      this.world.enter();
+      this.world.enter(options);
     } catch (error) {
       console.error(error);
       this.hideLoader();
       this.mode = 'desk';
       this.uiButtons.classList.add('visible');
       this.terminal.show();
-      this.terminal.write('\nThe neighborhood could not be loaded. The terminal still works.\n');
+      this.terminal.write('\nThe circuit could not be loaded. The terminal still works.\n');
     }
   }
 
@@ -253,7 +270,7 @@ class HackerDeskApp {
   animate() {
     requestAnimationFrame(() => this.animate());
 
-    const dt = Math.min(this.clock.getDelta(), 0.05);
+    const dt = Math.min(this.clock.getDelta(), this.mode === 'world' ? 0.1 : 0.05);
     if (!this.isReady) return;
 
     if (this.mode === 'world' && this.world?.ready) {

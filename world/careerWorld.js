@@ -1,13 +1,18 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
 import { MeshoptDecoder } from './vendor/meshopt_decoder.module.js';
 import { WalkControls } from './controls.js';
+import { DriveControls } from './driveControls.js';
+import { describeStops } from './circuit.js';
+import { buildIsland } from './scenery.js';
+import { createKartVisual } from './kartView.js';
 import {
-  sortExperienceChronologically,
-  formatSignYears,
-  formatPanelDates,
-} from './places.js';
+  addStaticAabb,
+  addStaticCylinder,
+  createKart,
+  createPhysicsWorld,
+  syncMesh,
+} from './vehicle.js';
 
 const BASE = './assets/world/';
 const TILE = 2.2;
@@ -15,27 +20,12 @@ const MOVE_SPEED = 6.1;
 const PLAYER_RADIUS = 0.34;
 const MODEL_YAW = 0;
 
-const LOOKS = {
-  'United States Army': {
-    parts: [
-      { file: 'hq.glb', height: 8.2, dx: 1.5, dz: 0 },
-      { file: 'barracks.glb', height: 5.2, dx: 8, dz: -6.2 },
-      { file: 'barracks.glb', height: 5.2, dx: 8, dz: 0 },
-      { file: 'barracks.glb', height: 5.2, dx: 8, dz: 6.2 },
-    ],
-  },
-  'AT&T': { parts: [{ file: 'shop.glb', height: 6.6 }] },
-  'Dell SecureWorks': { parts: [{ file: 'soc.glb', height: 8 }] },
-  'Data Path': { parts: [{ file: 'office-small.glb', height: 8 }] },
-  'American Express': { parts: [{ file: 'bank.glb', height: 8.4 }] },
-  'Unisys': { parts: [{ file: 'office-white.glb', height: 10 }] },
-  'Community Loans of America': { parts: [{ file: 'brick.glb', height: 9 }] },
-  'Ace Group LLC': { parts: [{ file: 'glass.glb', height: 11 }] },
-  Moderna: { parts: [{ file: 'campus.glb', height: 12 }] },
-  'Latitude Services': { parts: [{ file: 'tower.glb', height: 22 }] },
-};
-
-const FALLBACK_FILES = ['office-small.glb', 'shop.glb', 'brick.glb', 'glass.glb', 'office-white.glb'];
+const OUTDOOR = new Set([
+  'house.glb', 'tree-large.glb', 'tree-small.glb', 'fence.glb', 'fence-long.glb', 'planter.glb',
+  'office-small.glb', 'shop.glb', 'soc.glb', 'hall.glb', 'office-white.glb', 'brick.glb',
+  'hq.glb', 'glass.glb', 'campus.glb', 'bank.glb', 'tower.glb', 'barracks.glb',
+  'sign-post.glb', 'billboard.glb', 'mailbox-box.glb',
+]);
 
 export class CareerWorld {
   constructor(renderer, resume, hooks) {
@@ -43,7 +33,7 @@ export class CareerWorld {
     this.resume = resume;
     this.hooks = hooks;
     this.scene = new THREE.Scene();
-    this.camera = new THREE.PerspectiveCamera(68, window.innerWidth / window.innerHeight, 0.1, 250);
+    this.camera = new THREE.PerspectiveCamera(58, window.innerWidth / window.innerHeight, 0.15, 700);
     this.controls = null;
     this.loader = new GLTFLoader();
     this.loader.setMeshoptDecoder(MeshoptDecoder);
@@ -62,9 +52,21 @@ export class CareerWorld {
     this.actions = {};
     this.currentAction = '';
     this.streetEnd = 80;
+    this.bounds = { minX: -18, maxX: 36, minZ: -12, maxZ: 80 };
+    this.dynamics = [];
+    this.sites = [];
+    this.spawn = { x: 0, z: 9.2, yaw: -Math.PI / 2 };
+    this.upsideT = 0;
+    this.fps = 0;
+    this._fpsFrames = 0;
+    this._fpsAcc = 0;
+    this._camLook = new THREE.Vector3();
     this._saved = null;
     this._vec = new THREE.Vector3();
     this._onKey = (event) => this.onKey(event);
+    const params = new URLSearchParams(location.search);
+    this.autodrive = params.has('autodrive');
+    this.debug = params.has('debug') || this.autodrive;
   }
 
   async load(onProgress) {
@@ -73,11 +75,11 @@ export class CareerWorld {
       'house.glb', 'tree-large.glb', 'tree-small.glb', 'fence.glb', 'fence-long.glb', 'planter.glb',
       'office-small.glb', 'shop.glb', 'soc.glb', 'hall.glb', 'office-white.glb', 'brick.glb',
       'hq.glb', 'glass.glb', 'campus.glb', 'bank.glb', 'tower.glb', 'barracks.glb',
-      'road.glb', 'driveway.glb', 'streetlight.glb', 'sign-post.glb', 'billboard.glb',
+      'sign-post.glb', 'billboard.glb',
       'desk.glb', 'chair.glb', 'laptop.glb', 'monitor.glb', 'keyboard.glb',
       'wall.glb', 'wall-window.glb', 'wall-door.glb', 'floor.glb',
       'bookcase.glb', 'plant.glb', 'lamp.glb', 'rug.glb', 'books.glb', 'mailbox-box.glb',
-      'sedan.glb', 'player.glb',
+      'player.glb',
     ];
     let done = 0;
     await Promise.all(files.map(async (file) => {
@@ -85,15 +87,8 @@ export class CareerWorld {
       this.templates.set(file, gltf.scene);
       if (file === 'player.glb') this.playerGltf = gltf;
       done += 1;
-      onProgress?.(done / (files.length + 1));
+      onProgress?.(done / files.length);
     }));
-
-    const hdr = await new RGBELoader().loadAsync(BASE + 'sky.hdr');
-    hdr.mapping = THREE.EquirectangularReflectionMapping;
-    const pmrem = new THREE.PMREMGenerator(this.renderer);
-    this.scene.environment = pmrem.fromEquirectangular(hdr).texture;
-    this.scene.background = hdr;
-    pmrem.dispose();
     onProgress?.(1);
 
     for (const file of ['wall.glb', 'wall-window.glb', 'wall-door.glb', 'floor.glb']) {
@@ -103,65 +98,137 @@ export class CareerWorld {
         materials.forEach((material) => { material.side = THREE.DoubleSide; });
       });
     }
+    for (const file of OUTDOOR) this.toyify(this.templates.get(file));
     this.buildScene();
     this.controls = new WalkControls(this.renderer.domElement);
     this.controls.setVisible(false);
+    this.drive = new DriveControls();
+    this.drive.setVisible(false);
     document.addEventListener('keydown', this._onKey);
     this.ready = true;
-    if (new URLSearchParams(location.search).has('debug')) {
-      window.__career = this;
-    }
+    if (this.debug) window.__career = this;
+  }
+
+  toyify(root) {
+    if (!root) return;
+    root.traverse((obj) => {
+      if (!obj.isMesh || !obj.material) return;
+      const list = Array.isArray(obj.material) ? obj.material : [obj.material];
+      const mapped = list.map((material) => {
+        const color = material.color ? material.color.clone() : new THREE.Color('#ffffff');
+        const hsl = { h: 0, s: 0, l: 0 };
+        color.getHSL(hsl);
+        color.setHSL(hsl.h, Math.min(1, hsl.s * 1.08 + 0.04), Math.min(0.74, Math.max(0.28, hsl.l)));
+        const next = new THREE.MeshLambertMaterial({
+          color,
+          map: material.map || null,
+          vertexColors: material.vertexColors || false,
+          side: material.side,
+          flatShading: !material.map,
+        });
+        if (material.transparent) {
+          next.transparent = true;
+          next.opacity = material.opacity;
+        }
+        return next;
+      });
+      obj.material = Array.isArray(obj.material) ? mapped : mapped[0];
+    });
   }
 
   buildScene() {
-    this.scene.fog = new THREE.Fog(0xc5d9ee, 50, 150);
-    const hemi = new THREE.HemisphereLight(0xcfe6ff, 0x6d8a4a, 0.72);
-    this.scene.add(hemi);
-    this.scene.add(new THREE.AmbientLight(0xfff4e0, 0.18));
-    this.sun = new THREE.DirectionalLight(0xfff1d6, 2.35);
-    this.sun.position.set(24, 36, 12);
+    this.scene.fog = new THREE.Fog(0xd5e7fb, 80, 250);
+    this.scene.add(new THREE.HemisphereLight(0xc5e4ff, 0xf0c99a, 0.95));
+    this.scene.add(new THREE.AmbientLight(0xfff6ea, 0.3));
+    this.sun = new THREE.DirectionalLight(0xfff4e2, 1.22);
+    this.sun.position.set(28, 40, 14);
     if (!this.mobile) {
       this.sun.castShadow = true;
       this.sun.shadow.mapSize.set(1024, 1024);
       this.sun.shadow.camera.near = 1;
-      this.sun.shadow.camera.far = 80;
-      this.sun.shadow.camera.left = -22;
-      this.sun.shadow.camera.right = 22;
-      this.sun.shadow.camera.top = 22;
-      this.sun.shadow.camera.bottom = -22;
-      this.sun.shadow.bias = -0.0004;
+      this.sun.shadow.camera.far = 70;
+      this.sun.shadow.camera.left = -18;
+      this.sun.shadow.camera.right = 18;
+      this.sun.shadow.camera.top = 18;
+      this.sun.shadow.camera.bottom = -18;
+      this.sun.shadow.bias = -0.0008;
     }
     this.scene.add(this.sun);
     this.scene.add(this.sun.target);
 
-    this.ground();
+    this.physics = createPhysicsWorld();
     this.buildHouse();
-    this.buildStreet();
+    this.addBollards();
+    const island = buildIsland({
+      scene: this.scene,
+      place: (file, opts) => this.place(file, opts),
+      physics: this.physics,
+      stops: describeStops(this.resume),
+      mobile: this.mobile,
+      resume: this.resume,
+      addBlocker: (box) => this.addSolidFromBox(box, 0.08),
+    });
+    this.sites = island.zones;
+    this.dynamics = island.dynamics;
+    this.bounds = island.bounds;
+    this.spawn = island.spawn;
+    this.streetEnd = this.bounds.maxZ;
+
+    this.kart = createKart(this.physics.world, this.physics.materials, { subdued: this.reduced });
+    this.kart.spawn(this.spawn.x, 0.58, this.spawn.z, this.spawn.yaw);
+    this.kartView = createKartVisual(this.mobile);
+    this.scene.add(this.kartView.root);
+    this.kartView.wheels.forEach((wheel) => this.scene.add(wheel));
+    this.addBlob();
+
     this.buildCharacter();
     this.createHud();
     this.seat();
   }
 
-  ground() {
-    const tex = new THREE.TextureLoader().load(BASE + 'grass.jpg');
-    tex.colorSpace = THREE.SRGBColorSpace;
-    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-    tex.repeat.set(48, 48);
-    tex.anisotropy = 4;
-    const mesh = new THREE.Mesh(
-      new THREE.PlaneGeometry(420, 420),
-      new THREE.MeshStandardMaterial({ map: tex, roughness: 1, metalness: 0 }),
+  addBlob() {
+    const canvas = document.createElement('canvas');
+    canvas.width = 64;
+    canvas.height = 64;
+    const ctx = canvas.getContext('2d');
+    const grad = ctx.createRadialGradient(32, 32, 4, 32, 32, 32);
+    grad.addColorStop(0, 'rgba(36,28,24,0.28)');
+    grad.addColorStop(1, 'rgba(36,28,24,0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, 64, 64);
+    const tex = new THREE.CanvasTexture(canvas);
+    this.blob = new THREE.Mesh(
+      new THREE.CircleGeometry(1.5, 18),
+      new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false }),
     );
-    mesh.rotation.x = -Math.PI / 2;
-    mesh.receiveShadow = !this.mobile;
-    this.scene.add(mesh);
+    this.blob.rotation.x = -Math.PI / 2;
+    this.scene.add(this.blob);
+  }
+
+  addBollards() {
+    const body = new THREE.MeshLambertMaterial({ color: '#ff5a36', flatShading: true });
+    const cap = new THREE.MeshLambertMaterial({ color: '#fff6ea', flatShading: true });
+    for (const x of [-0.78, 0.78]) {
+      const group = new THREE.Group();
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.26, 0.8, 8), body);
+      pole.position.y = 0.4;
+      const top = new THREE.Mesh(new THREE.SphereGeometry(0.18, 8, 6), cap);
+      top.position.y = 0.86;
+      group.add(pole, top);
+      group.position.set(x, 0, 4.25);
+      this.scene.add(group);
+      addStaticCylinder(this.physics.world, this.physics.materials.ground, x, 0.42, 4.25, 0.26, 0.84);
+      this.blockers.push({ minX: x - 0.28, maxX: x + 0.28, minZ: 3.95, maxZ: 4.55 });
+    }
+    addStaticCylinder(this.physics.world, this.physics.materials.ground, -6.2, 1, 2, 0.4, 2);
+    addStaticCylinder(this.physics.world, this.physics.materials.ground, 6.4, 1, 1.2, 0.32, 2);
   }
 
   buildHouse() {
     const half = 1.5 * TILE;
     for (let ix = -1; ix <= 1; ix += 1) {
       for (let iz = -1; iz <= 1; iz += 1) {
-        this.scene.add(this.place('floor.glb', { scale: TILE, x: ix * TILE, y: -0.1, z: iz * TILE }));
+        this.scene.add(this.place('floor.glb', { scale: TILE, x: ix * TILE, y: 0.02, z: iz * TILE }));
       }
     }
     for (const x of [-TILE, 0, TILE]) {
@@ -188,7 +255,7 @@ export class CareerWorld {
     const chair = this.place('chair.glb', { height: 0.82, x: 0.05, z: -1.35, rotY: Math.PI });
     this.scene.add(desk, chair);
     this.addSolid(desk);
-    this.scene.add(this.place('rug.glb', { scale: 1.7, x: 0, y: 0.02, z: -1.9 }));
+    this.scene.add(this.place('rug.glb', { scale: 1.7, x: 0, y: 0.04, z: -1.9 }));
     this.scene.add(this.place('laptop.glb', { height: 0.32, x: -0.28, y: 0.75, z: -2.25, rotY: Math.PI }));
     this.scene.add(this.place('monitor.glb', { height: 0.42, x: 0.32, y: 0.75, z: -2.45, rotY: 0.15 }));
     this.scene.add(this.place('keyboard.glb', { height: 0.05, x: 0.32, y: 0.75, z: -2.1 }));
@@ -200,10 +267,10 @@ export class CareerWorld {
     this.scene.add(this.place('lamp.glb', { height: 1.45, x: 2.15, z: -0.4 }));
     this.scene.add(this.place('planter.glb', { height: 0.45, x: 1.5, z: half + 0.7 }));
 
-    const lamp = new THREE.PointLight(0xffe0b0, 6, 9, 2);
+    const lamp = new THREE.PointLight(0xffe0b0, 8, 9, 2);
     lamp.position.set(2.15, 1.5, -0.4);
     this.scene.add(lamp);
-    const screen = new THREE.PointLight(0x7dff9a, 3.5, 5, 2);
+    const screen = new THREE.PointLight(0x7dff9a, 4.5, 5, 2);
     screen.position.set(0, 1.25, -2.2);
     this.scene.add(screen);
 
@@ -217,165 +284,6 @@ export class CareerWorld {
     this.scene.add(this.place('tree-small.glb', { height: 3.1, x: 6.4, z: 1.2 }));
     this.scene.add(this.place('fence.glb', { height: 1.1, x: -5.2, z: 4.2, rotY: Math.PI / 2 }));
     this.scene.add(this.place('fence.glb', { height: 1.1, x: 5.4, z: 4.2, rotY: Math.PI / 2 }));
-  }
-
-  buildStreet() {
-    this.scene.add(this.place('driveway.glb', { scale: 5, x: 0, y: 0.03, z: 8 }));
-    this.scene.add(this.place('driveway.glb', { scale: 5, x: 0, y: 0.03, z: 13 }));
-    const car = this.place('sedan.glb', { height: 1.55, x: 3.9, z: 8.4, rotY: 0.2 });
-    this.scene.add(car);
-    this.addSolid(car, 0.15);
-
-    this.buildMailbox();
-
-    const jobs = sortExperienceChronologically(this.resume.experience || []);
-    let cursor = 20;
-    let fallbackIndex = 0;
-    for (const job of jobs) {
-      const look = LOOKS[job.company] || {
-        parts: [{ file: FALLBACK_FILES[fallbackIndex++ % FALLBACK_FILES.length], height: 8 }],
-      };
-      cursor = this.addSite({
-        kind: 'job',
-        cursor,
-        parts: look.parts,
-        signTitle: job.company,
-        signSub: formatSignYears(job.dates),
-        present: job.dates?.end === 'present',
-        panel: {
-          kicker: job.company,
-          title: job.title || job.position || '',
-          meta: [formatPanelDates(job.dates), job.location, job.employmentType].filter(Boolean).join(' · '),
-          bullets: job.highlights || job.description || [],
-        },
-      });
-    }
-
-    const schools = this.resume.education || [];
-    if (schools.length) {
-      cursor = this.addSite({
-        kind: 'education',
-        cursor,
-        parts: [{ file: 'hall.glb', height: 8 }],
-        signTitle: 'Education',
-        signSub: schools.map((edu) => edu.school || edu.institution).filter(Boolean).join(' · '),
-        panel: {
-          kicker: 'Education',
-          title: 'Schools',
-          meta: '',
-          bullets: schools.map((edu) => {
-            const school = edu.school || edu.institution || '';
-            const year = edu.graduationYear ? ` (${edu.graduationYear})` : '';
-            const where = edu.location ? `, ${edu.location}` : '';
-            return `${school} — ${edu.degree || ''}${year}${where}`;
-          }),
-        },
-      });
-    }
-
-    const certs = this.resume.certifications || [];
-    if (certs.length) {
-      cursor = this.addBoard(cursor, certs);
-    }
-    this.streetEnd = cursor;
-
-    for (let z = 16; z < this.streetEnd + 6; z += 5) {
-      this.scene.add(this.place('road.glb', { scale: 5, x: 0, y: 0.025, z }));
-    }
-    for (let z = 18; z < this.streetEnd; z += 18) {
-      this.scene.add(this.place('streetlight.glb', { height: 6.4, x: -3.4, z }));
-      this.scene.add(this.place('tree-large.glb', { height: 4.6 + (z % 5) * 0.15, x: -7.5, z: z + 4 }));
-      this.scene.add(this.place('tree-small.glb', { height: 3.4, x: -8.8, z: z + 11 }));
-    }
-
-    const ave = this.makeSign('Career Ave', 'Walk forward');
-    ave.position.set(-3.2, 2.4, 16);
-    ave.rotation.y = Math.PI / 2;
-    this.scene.add(ave);
-  }
-
-  addSite({ kind, cursor, parts, signTitle, signSub, present, panel }) {
-    const group = new THREE.Group();
-    for (const part of parts) {
-      group.add(this.place(part.file, {
-        height: part.height,
-        x: part.dx || 0,
-        z: part.dz || 0,
-        rotY: part.rotY ?? -Math.PI / 2,
-      }));
-    }
-    this.scene.add(group);
-    let box = new THREE.Box3().setFromObject(group);
-    group.position.x += 4.6 - box.min.x;
-    box = new THREE.Box3().setFromObject(group);
-    group.position.z += cursor - box.min.z;
-    box = new THREE.Box3().setFromObject(group);
-    this.addSolidFromBox(box, 0.2);
-    const sign = this.makeSign(signTitle, signSub, present);
-    sign.position.set(box.min.x - 1.2, Math.min(3.2, box.max.y * 0.42 + 0.6), (box.min.z + box.max.z) / 2);
-    sign.rotation.y = -Math.PI / 2;
-    this.scene.add(sign);
-    this.sites.push({ kind, box, panel });
-    return box.max.z + 7;
-  }
-
-  addBoard(cursor, certs) {
-    const board = this.makeSign(
-      'Certifications',
-      certs.map((cert) => cert.name).join('  ·  '),
-      false,
-      5.4,
-      2.4,
-    );
-    board.position.set(10.5, 1.8, cursor + 2);
-    board.rotation.y = -Math.PI / 2;
-    this.scene.add(board);
-    this.scene.add(this.place('billboard.glb', {
-      height: 3.2,
-      x: 12.2,
-      z: cursor + 2,
-      rotY: -Math.PI / 2,
-    }));
-    const box = new THREE.Box3().setFromObject(board);
-    this.sites.push({
-      kind: 'certs',
-      box,
-      panel: {
-        kicker: 'Certifications',
-        title: 'Board',
-        meta: '',
-        bullets: certs.map((cert) => cert.issuer ? `${cert.name} (${cert.issuer})` : cert.name),
-      },
-    });
-    return cursor + 8;
-  }
-
-  buildMailbox() {
-    const post = this.place('sign-post.glb', { height: 1.35, x: -3.5, z: 7.2 });
-    const box = this.place('mailbox-box.glb', { height: 0.38, x: -3.5, y: 1.05, z: 7.2 });
-    this.scene.add(post, box);
-    const sign = this.makeSign('Mailbox', 'Contact', false, 1.5, 0.7);
-    sign.position.set(-3.5, 1.7, 7.7);
-    sign.rotation.y = Math.PI / 2;
-    this.scene.add(sign);
-    const contact = this.resume.contact || {};
-    const identity = this.resume.identity || {};
-    this.sites.push({
-      kind: 'mail',
-      box: new THREE.Box3(new THREE.Vector3(-4.4, 0, 6.2), new THREE.Vector3(-2.6, 2, 8.4)),
-      panel: {
-        kicker: identity.name || 'Mailbox',
-        title: 'Contact',
-        meta: contact.location || '',
-        bullets: [
-          contact.email ? `Email: ${contact.email}` : '',
-          contact.phone ? `Phone: ${contact.phone}` : '',
-          contact.linkedin ? `LinkedIn: ${contact.linkedin}` : '',
-          contact.github ? `GitHub: ${contact.github}` : '',
-          contact.website ? `Website: ${contact.website}` : '',
-        ].filter(Boolean),
-      },
-    });
   }
 
   buildCharacter() {
@@ -507,23 +415,28 @@ export class CareerWorld {
   seat() {
     this.state = 'seated';
     this.riseT = 0;
+    if (this.player.parent && this.player.parent !== this.scene) this.scene.attach(this.player);
+    this.player.scale.setScalar(1);
     this.player.position.set(0.02, -0.42, -1.58);
     this.player.rotation.y = Math.PI + MODEL_YAW;
     this.controls && (this.controls.yaw = 0);
     this.controls && (this.controls.pitch = 0);
-    if (this.actions.sit) {
-      this.mixer.stopAllAction();
-      const sit = this.actions.sit;
-      sit.reset();
-      sit.setLoop(THREE.LoopOnce, 1);
-      sit.clampWhenFinished = true;
-      sit.play();
-      sit.time = Math.max(0, sit.getClip().duration - 0.04);
-      sit.paused = true;
-      this.mixer.update(0);
-      this.currentAction = 'sit';
-    }
+    this.poseSitting();
     this.applySeatCamera();
+  }
+
+  poseSitting(time) {
+    if (!this.actions.sit) return;
+    this.mixer.stopAllAction();
+    const sit = this.actions.sit;
+    sit.reset();
+    sit.setLoop(THREE.LoopOnce, 1);
+    sit.clampWhenFinished = true;
+    sit.play();
+    sit.time = time == null ? Math.max(0, sit.getClip().duration - 0.04) : time;
+    sit.paused = true;
+    this.mixer.update(0);
+    this.currentAction = 'sit';
   }
 
   standUp() {
@@ -545,21 +458,100 @@ export class CareerWorld {
   }
 
   completeRise() {
-    if (this.state === 'walk') return;
+    if (this.state === 'walk' || this.state === 'drive') return;
     this.state = 'walk';
     this.riseT = 1;
     this.controls.enabled = true;
+    this.drive.enabled = false;
     this.controls.yaw = 0;
     this.player.position.y = 0;
     this.player.position.z = 0.4;
-    this.controls.setVisible(true);
     this.player.rotation.y = MODEL_YAW;
     this.fadeTo('idle');
-    if (this.hint) {
-      this.hint.classList.remove('hidden');
-      clearTimeout(this.hintTimer);
-      this.hintTimer = setTimeout(() => this.hint.classList.add('hidden'), 7000);
-    }
+    this.showHint('Walk to the kart and hop in. F starts driving. Esc returns to the terminal.');
+    this.updateChrome();
+  }
+
+  startDriving() {
+    if (!this.kart || this.state === 'drive') return;
+    this.state = 'drive';
+    this.controls.enabled = false;
+    this.controls.exitLock();
+    this.drive.enabled = true;
+    this.poseSitting(0.42);
+    this.controls.enabled = false;
+    this.kartView.seat.attach(this.player);
+    this.player.scale.setScalar(0.72);
+    this.player.position.set(0.45, -0.35, 0);
+    this.player.rotation.set(0, Math.PI / 2, 0);
+    this.upsideT = 0;
+    this._camLook.set(this.kart.chassis.position.x, 1.2, this.kart.chassis.position.z);
+    const hint = this.mobile
+      ? 'Joystick steers and accelerates. Pedals work too. Esc returns to the terminal.'
+      : 'WASD or arrows drive. Space brakes. R uprights the kart. E hops out. Esc returns to the terminal.';
+    this.showHint(hint);
+    if (document.activeElement && document.activeElement.tagName === 'BUTTON') document.activeElement.blur();
+    this.updateChrome();
+  }
+
+  hopOut() {
+    if (this.state !== 'drive') return;
+    const forward = new THREE.Vector3(1, 0, 0).applyQuaternion(this.kartView.root.quaternion);
+    const right = new THREE.Vector3(0, 0, 1).applyQuaternion(this.kartView.root.quaternion);
+    const pos = this.kart.chassis.position;
+    this.scene.attach(this.player);
+    this.player.scale.setScalar(1);
+    this.player.position.set(pos.x + right.x * 1.8, 0, pos.z + right.z * 1.8);
+    this.player.rotation.set(0, Math.atan2(forward.x, forward.z), 0);
+    this.controls.yaw = this.player.rotation.y;
+    this.controls.enabled = true;
+    this.drive.enabled = false;
+    this.state = 'walk';
+    this.fadeTo('idle');
+    this.showHint('Walk around, or hop back in. Esc returns to the terminal.');
+    this.updateChrome();
+  }
+
+  recoverKart() {
+    const x = this.kart.chassis.position.x;
+    const z = this.kart.chassis.position.z;
+    const yaw = this.kart.forwardYaw();
+    const fx = Math.cos(yaw);
+    const fz = -Math.sin(yaw);
+    this.kart.spawn(x - fx * 2.2, 1.15, z - fz * 2.2, yaw);
+    this.upsideT = 0;
+    this.stuckT = 0;
+  }
+
+  showHint(text) {
+    if (!this.hint) return;
+    this.hint.textContent = text;
+    this.hint.classList.remove('hidden');
+    clearTimeout(this.hintTimer);
+    this.hintTimer = setTimeout(() => this.hint?.classList.add('hidden'), 6500);
+  }
+
+  distanceToKart() {
+    if (!this.kart) return Infinity;
+    const pos = this.player.position;
+    const kart = this.kart.chassis.position;
+    return Math.hypot(pos.x - kart.x, pos.z - kart.z);
+  }
+
+  updateChrome() {
+    if (!this.hud) return;
+    const driving = this.state === 'drive';
+    const seated = this.state === 'seated';
+    const walking = this.state === 'walk';
+    const near = walking && this.distanceToKart() < 3.6;
+    this.standButton.classList.toggle('hidden', !seated);
+    this.hopButton.classList.toggle('hidden', !near);
+    this.driveButton.classList.toggle('hidden', driving || near);
+    this.outButton.classList.toggle('hidden', !driving);
+    this.speedEl.classList.toggle('hidden', !driving);
+    if (driving) this.speedEl.textContent = `${Math.round(Math.abs(this.kart.speedKmh()))} km/h`;
+    this.controls.setVisible(walking);
+    this.drive.setVisible(driving);
   }
 
   fadeTo(name) {
@@ -635,6 +627,7 @@ export class CareerWorld {
   addSolid(object, pad = 0.05) {
     const box = new THREE.Box3().setFromObject(object);
     this.addSolidFromBox(box, pad);
+    if (this.physics) addStaticAabb(this.physics, box, pad);
     return box;
   }
 
@@ -650,21 +643,39 @@ export class CareerWorld {
   createHud() {
     this.hud = document.createElement('div');
     this.hud.id = 'walk-hud';
+    if (this.mobile) this.hud.classList.add('coarse');
     this.hud.innerHTML = `
       <div class="walk-top">
         <button type="button" id="walk-exit">Back to terminal</button>
         <button type="button" id="walk-list">Text list</button>
         <button type="button" id="walk-credits">Credits</button>
+        <button type="button" id="walk-out" class="hidden">Hop out</button>
       </div>
-      <button type="button" id="walk-stand">Stand up</button>
-      <p id="walk-hint" class="hidden">WASD or arrows to walk · click to look · Q/E to turn · Esc returns to the terminal</p>
+      <div id="drive-speed" class="hidden">0 km/h</div>
+      <div id="walk-actions">
+        <button type="button" id="walk-stand">Stand up</button>
+        <button type="button" id="walk-drive">Start driving</button>
+        <button type="button" id="walk-hop" class="hidden">Hop in</button>
+      </div>
+      <p id="walk-hint" class="hidden"></p>
       <aside id="walk-panel" aria-live="polite"></aside>
     `;
     document.body.appendChild(this.hud);
     this.standButton = this.hud.querySelector('#walk-stand');
+    this.driveButton = this.hud.querySelector('#walk-drive');
+    this.hopButton = this.hud.querySelector('#walk-hop');
+    this.outButton = this.hud.querySelector('#walk-out');
+    this.speedEl = this.hud.querySelector('#drive-speed');
     this.hint = this.hud.querySelector('#walk-hint');
     this.panel = this.hud.querySelector('#walk-panel');
-    this.standButton.addEventListener('click', () => this.standUp());
+    const bind = (button, fn) => button.addEventListener('click', (event) => {
+      event.currentTarget.blur();
+      fn();
+    });
+    bind(this.standButton, () => this.standUp());
+    bind(this.driveButton, () => this.startDriving());
+    bind(this.hopButton, () => this.startDriving());
+    bind(this.outButton, () => this.hopOut());
     this.hud.querySelector('#walk-exit').addEventListener('click', () => this.hooks.onExit());
     this.hud.querySelector('#walk-list').addEventListener('click', () => this.hooks.onFallback());
     this.hud.querySelector('#walk-credits').addEventListener('click', () => this.hooks.onCredits());
@@ -672,7 +683,8 @@ export class CareerWorld {
 
   onKey(event) {
     if (!this.active) return;
-    if (document.getElementById('credits-overlay')?.classList.contains('visible')) return;
+    if (this.creditsOpen()) return;
+    if (event.target && (event.target.tagName === 'INPUT' || event.target.tagName === 'TEXTAREA')) return;
     if (event.key === 'Escape') {
       if (document.pointerLockElement) return;
       event.preventDefault();
@@ -682,27 +694,61 @@ export class CareerWorld {
     if (this.state === 'seated' && (event.key === 'Enter' || event.key === 'e' || event.key === 'E' || event.code === 'Space')) {
       event.preventDefault();
       this.standUp();
+      return;
+    }
+    if (event.code === 'KeyF' && this.state !== 'drive') {
+      event.preventDefault();
+      this.startDriving();
+      return;
+    }
+    if (event.code === 'KeyE' && this.state === 'walk') {
+      if (this.distanceToKart() < 3.6) {
+        event.preventDefault();
+        this.startDriving();
+      }
+      return;
+    }
+    if (event.code === 'KeyE' && this.state === 'drive') {
+      event.preventDefault();
+      this.hopOut();
+      return;
+    }
+    if (event.code === 'KeyR' && this.state === 'drive') {
+      event.preventDefault();
+      this.recoverKart();
     }
   }
 
-  enter() {
+  creditsOpen() {
+    return !!document.getElementById('credits-overlay')?.classList.contains('visible');
+  }
+
+  enter(options = {}) {
     this.active = true;
     this.hud.classList.add('visible');
-    this.standButton.classList.remove('hidden');
-    this.hint.classList.add('hidden');
     this.panel.classList.remove('visible');
     this.activeSite = null;
     this.controls.enabled = false;
+    this.drive.enabled = false;
     this.controls.setVisible(false);
+    this.drive.setVisible(false);
+    this.resetProps();
+    this.kart.spawn(this.spawn.x, 0.58, this.spawn.z, this.spawn.yaw);
+    this.upsideT = 0;
     this.seat();
+    if (options.drive || this.autodrive) this.startDriving();
+    else this.showHint('Stand up and walk to the kart, or start driving. Esc returns to the terminal.');
     this.applyRenderer(true);
+    this.updateChrome();
   }
 
   exit() {
     this.active = false;
     this.controls.enabled = false;
+    this.drive.enabled = false;
     this.controls.exitLock();
     this.controls.setVisible(false);
+    this.drive.setVisible(false);
     this.hud.classList.remove('visible');
     this.applyRenderer(false);
   }
@@ -714,15 +760,18 @@ export class CareerWorld {
         toneMapping: renderer.toneMapping,
         exposure: renderer.toneMappingExposure,
         pixelRatio: renderer.getPixelRatio(),
+        shadowType: renderer.shadowMap.type,
       };
-      renderer.toneMapping = THREE.ACESFilmicToneMapping;
-      renderer.toneMappingExposure = 1.02;
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, this.mobile ? 1.25 : 1.6));
+      renderer.toneMapping = THREE.NoToneMapping;
+      renderer.toneMappingExposure = 1;
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, this.mobile ? 1 : 1.5));
       return;
     }
     if (!this._saved) return;
     renderer.toneMapping = this._saved.toneMapping;
     renderer.toneMappingExposure = this._saved.exposure;
+    renderer.shadowMap.type = this._saved.shadowType;
     renderer.setPixelRatio(this._saved.pixelRatio);
   }
 
@@ -733,9 +782,22 @@ export class CareerWorld {
 
   update(dt) {
     if (!this.ready || !this.active) return;
-    if (this.state === 'seated') {
-      this.applySeatCamera();
-    } else if (this.state === 'rising') {
+    const driving = this.state === 'drive';
+    if (driving) {
+      let input = this.drive.read();
+      if (this.creditsOpen()) input = { throttle: 0, steer: 0, brake: 1 };
+      else if (this.autodrive) input = this.autoInput();
+      this.kart.applyControls(input, dt);
+      if (this.kart.upright() < 0.28) this.upsideT += dt;
+      else this.upsideT = 0;
+      if (Math.abs(input.throttle) > 0.6 && Math.abs(this.kart.speedKmh()) < 3) this.stuckT = (this.stuckT || 0) + dt;
+      else this.stuckT = 0;
+      if (this.upsideT > 1.25 || this.stuckT > 1.5) this.recoverKart();
+    } else if (this.kart) {
+      this.kart.applyControls({ throttle: 0, steer: 0, brake: 1 }, dt);
+    }
+
+    if (this.state === 'rising') {
       this.riseT = Math.min(1, this.riseT + dt / 0.95);
       const ease = this.riseT < 0.5
         ? 2 * this.riseT * this.riseT
@@ -743,22 +805,90 @@ export class CareerWorld {
       this.player.rotation.y = Math.PI * (1 - ease) + MODEL_YAW;
       this.player.position.y = -0.42 * (1 - ease);
       this.player.position.z = -1.58 + (0.4 - -1.58) * ease;
+      if (this.riseT >= 1) this.completeRise();
+    } else if (this.state === 'walk') {
+      this.step(dt);
+    }
+
+    this.physics.world.step(1 / 60, Math.min(dt, 0.1), this.mobile ? 4 : 6);
+    this.syncWorld();
+
+    if (this.state === 'seated') this.applySeatCamera();
+    else if (this.state === 'rising') {
       this.applyFollowCamera();
       const followPos = this.camera.position.clone();
       const followQuat = this.camera.quaternion.clone();
       this.applySeatCamera();
+      const ease = this.riseT < 0.5
+        ? 2 * this.riseT * this.riseT
+        : 1 - ((-2 * this.riseT + 2) ** 2) / 2;
       this.camera.position.lerp(followPos, ease);
       this.camera.quaternion.slerp(followQuat, ease);
-      if (this.riseT >= 1) this.completeRise();
-    } else {
-      this.step(dt);
-      this.applyFollowCamera();
-    }
+    } else if (driving) this.applyDriveCamera(dt);
+    else this.applyFollowCamera();
+
     this.mixer?.update(dt);
-    this.sun.position.set(this.player.position.x + 18, 32, this.player.position.z + 10);
-    this.sun.target.position.set(this.player.position.x, 0, this.player.position.z);
+    const sky = this.scene.getObjectByName('career-sky');
+    if (sky) sky.position.copy(this.camera.position);
+    const focus = driving ? this.kart.chassis.position : this.player.position;
+    this.sun.position.set(focus.x + 16, 34, focus.z + 10);
+    this.sun.target.position.set(focus.x, 0, focus.z);
     this.sun.target.updateMatrixWorld();
     this.updateProximity();
+    this.updateChrome();
+    this._fpsFrames += 1;
+    this._fpsAcc += dt;
+    if (this._fpsAcc >= 0.5) {
+      this.fps = this._fpsFrames / this._fpsAcc;
+      this._fpsFrames = 0;
+      this._fpsAcc = 0;
+    }
+  }
+
+  autoInput() {
+    const t = performance.now() / 1000;
+    return { throttle: 0.85, steer: Math.sin(t * 0.65) * 0.45, brake: 0 };
+  }
+
+  syncWorld() {
+    syncMesh(this.kartView.root, this.kart.chassis);
+    const vehicle = this.kart.vehicle;
+    for (let i = 0; i < this.kartView.wheels.length; i += 1) {
+      vehicle.updateWheelTransform(i);
+      const transform = vehicle.wheelInfos[i].worldTransform;
+      const wheel = this.kartView.wheels[i];
+      wheel.position.set(transform.position.x, transform.position.y, transform.position.z);
+      wheel.quaternion.set(
+        transform.quaternion.x,
+        transform.quaternion.y,
+        transform.quaternion.z,
+        transform.quaternion.w,
+      );
+    }
+    if (this.blob) {
+      this.blob.position.set(this.kart.chassis.position.x, 0.08, this.kart.chassis.position.z);
+    }
+    for (const item of this.dynamics) syncMesh(item.mesh, item.body);
+  }
+
+  resetProps() {
+    for (const item of this.dynamics) {
+      item.body.position.set(item.spawn.x, item.spawn.y, item.spawn.z);
+      item.body.quaternion.set(0, 0, 0, 1);
+      item.body.velocity.set(0, 0, 0);
+      item.body.angularVelocity.set(0, 0, 0);
+      item.body.wakeUp();
+    }
+  }
+
+  sampleStats() {
+    const info = this.renderer.info;
+    return {
+      fps: Math.round(this.fps),
+      calls: info.render.calls,
+      triangles: info.render.triangles,
+      bodies: this.physics.world.bodies.length,
+    };
   }
 
   step(dt) {
@@ -766,8 +896,9 @@ export class CareerWorld {
     const dx = wish.x * MOVE_SPEED * dt;
     const dz = wish.z * MOVE_SPEED * dt;
     this.moveCollide(dx, dz);
-    this.player.position.x = clamp(this.player.position.x, -18, 36);
-    this.player.position.z = clamp(this.player.position.z, -8, this.streetEnd + 8);
+    const bounds = this.bounds;
+    this.player.position.x = clamp(this.player.position.x, bounds.minX + 1, bounds.maxX - 1);
+    this.player.position.z = clamp(this.player.position.z, bounds.minZ + 1, bounds.maxZ - 1);
     if (wish.moving) {
       this.player.rotation.y = this.controls.yaw + MODEL_YAW;
       this.fadeTo('walk');
@@ -793,11 +924,13 @@ export class CareerWorld {
   }
 
   applySeatCamera() {
-    this.camera.position.set(1.55, 1.55, 0.85);
-    this.camera.lookAt(-0.05, 0.95, -1.55);
+    const portrait = this.camera.aspect < 1;
+    this.camera.position.set(portrait ? 2.15 : 1.55, portrait ? 1.8 : 1.55, portrait ? 1.45 : 0.85);
+    this.camera.lookAt(0, 0.95, -1.45);
   }
 
   applyFollowCamera() {
+    this.aimFov(62);
     const yaw = this.controls.yaw;
     const pitch = this.controls.pitch;
     const dist = 2.7;
@@ -809,16 +942,43 @@ export class CareerWorld {
     this.camera.lookAt(px + fx * 1.4, 1.28 + Math.sin(pitch) * 1.6, pz + fz * 1.4);
   }
 
+  applyDriveCamera(dt) {
+    if (this.lockCamera) return;
+    this.aimFov(this.reduced ? 50 : 42);
+    const forward = new THREE.Vector3(1, 0, 0).applyQuaternion(this.kartView.root.quaternion);
+    const pos = this.kartView.root.position;
+    const desired = pos.clone().addScaledVector(forward, -9.4);
+    desired.y = pos.y + 8.8;
+    const look = pos.clone().addScaledVector(forward, 5.2);
+    look.y = pos.y + 0.9;
+    const k = 1 - Math.exp(-(this.reduced ? 14 : 3.2) * dt);
+    if (this._camLook.lengthSq() < 0.001) this._camLook.copy(look);
+    this.camera.position.lerp(desired, k);
+    this._camLook.lerp(look, k);
+    this.camera.lookAt(this._camLook);
+  }
+
+  aimFov(target) {
+    if (Math.abs(this.camera.fov - target) < 0.2) return;
+    this.camera.fov += (target - this.camera.fov) * 0.15;
+    this.camera.updateProjectionMatrix();
+  }
+
+  focusPoint() {
+    if (this.state === 'drive') {
+      return { x: this.kart.chassis.position.x, z: this.kart.chassis.position.z };
+    }
+    return { x: this.player.position.x, z: this.player.position.z };
+  }
+
   updateProximity() {
-    if (this.state === 'seated') return;
-    const x = this.player.position.x;
-    const z = this.player.position.z;
+    if (this.state === 'seated' || this.state === 'rising') return;
+    const { x, z } = this.focusPoint();
     let best = null;
     let bestDist = Infinity;
     for (const site of this.sites) {
-      const dist = distanceToBox(x, z, site.box);
-      const radius = site.kind === 'mail' ? 2.6 : 5.2;
-      if (dist < radius && dist < bestDist) {
+      const dist = Math.hypot(x - site.point.x, z - site.point.z);
+      if (dist < site.radius && dist < bestDist) {
         best = site;
         bestDist = dist;
       }
@@ -829,8 +989,8 @@ export class CareerWorld {
       this.panel.classList.add('visible');
       this.controls.exitLock();
     } else if (!best && this.activeSite) {
-      const radius = this.activeSite.kind === 'mail' ? 3.4 : 6.4;
-      if (distanceToBox(x, z, this.activeSite.box) > radius) {
+      const leave = this.activeSite.radius + 2.4;
+      if (Math.hypot(x - this.activeSite.point.x, z - this.activeSite.point.z) > leave) {
         this.activeSite = null;
         this.panel.classList.remove('visible');
       }
@@ -947,24 +1107,34 @@ function ensureStyle() {
   const style = document.createElement('style');
   style.id = 'career-world-style';
   style.textContent = `
-    #walk-hud { position: fixed; inset: 0; pointer-events: none; z-index: 2500; font-family: 'Courier New', monospace; color: #e9ffe9; display: none; }
+    #walk-hud { position: fixed; inset: 0; pointer-events: none; z-index: 2500; font-family: Verdana, "Trebuchet MS", sans-serif; color: #241c18; display: none; }
     #walk-hud.visible { display: block; }
-    #walk-hud button { pointer-events: auto; background: rgba(6, 20, 12, 0.88); color: #00ff41; border: 2px solid #00ff41; border-radius: 6px; padding: 8px 12px; font-family: inherit; cursor: pointer; }
-    .walk-top { position: absolute; top: 14px; right: 14px; display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; max-width: 70%; }
-    #walk-stand { position: absolute; left: 50%; bottom: 28px; transform: translateX(-50%); font-size: 22px; padding: 14px 28px; box-shadow: 0 0 24px rgba(0,255,65,.35); }
-    #walk-stand.hidden, #walk-hint.hidden, #walk-panel.visible.hidden { display: none; }
-    #walk-hint { position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); margin: 0; background: rgba(0,0,0,.55); padding: 8px 12px; border-radius: 6px; max-width: 92%; text-align: center; font-size: 13px; }
-    #walk-panel { pointer-events: auto; display: none; position: absolute; top: 72px; left: 16px; width: min(420px, calc(100% - 32px)); max-height: min(58vh, 520px); overflow: auto; background: rgba(6, 16, 12, 0.9); border: 2px solid #00ff41; border-radius: 10px; padding: 14px 16px 16px; box-shadow: 0 0 24px rgba(0,255,65,.2); }
+    #walk-hud button { pointer-events: auto; background: #fff8ee; color: #241c18; border: 3px solid #241c18; border-radius: 999px; padding: 8px 14px; font-family: inherit; font-weight: 700; cursor: pointer; box-shadow: 3px 3px 0 #241c18; }
+    .walk-top { position: absolute; top: 14px; right: 14px; display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; max-width: min(70%, 520px); }
+    #walk-actions { position: absolute; left: 50%; bottom: 22px; transform: translateX(-50%); display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; max-width: 96%; }
+    #walk-actions button { font-size: 18px; padding: 12px 18px; }
+    #walk-hud .hidden { display: none !important; }
+    #drive-speed { position: absolute; top: 16px; left: 50%; transform: translateX(-50%); background: #fff8ee; border: 3px solid #241c18; border-radius: 999px; padding: 6px 14px; font-weight: 800; box-shadow: 3px 3px 0 #241c18; }
+    #walk-hint { position: absolute; left: 50%; bottom: 92px; transform: translateX(-50%); margin: 0; background: rgba(255,248,238,.92); color: #241c18; border: 3px solid #241c18; padding: 8px 12px; border-radius: 12px; max-width: min(640px, 92%); text-align: center; font-size: 14px; font-weight: 700; }
+    #walk-panel { pointer-events: auto; display: none; position: absolute; top: 72px; left: 16px; width: min(420px, calc(100% - 32px)); max-height: min(52vh, 480px); overflow: auto; background: #fff8ee; color: #241c18; border: 3px solid #241c18; border-radius: 16px; padding: 14px 16px 16px; box-shadow: 6px 6px 0 #241c18; }
     #walk-panel.visible { display: block; }
-    #walk-panel h2 { margin: 0 0 6px; font-size: 20px; color: #f3fff3; }
-    #walk-panel .kicker { margin: 0; color: #00ff41; letter-spacing: .04em; text-transform: uppercase; font-size: 12px; }
-    #walk-panel .meta { color: #c6e6c6; margin: 0 0 8px; }
+    #walk-panel h2 { margin: 0 0 6px; font-size: 22px; color: #241c18; }
+    #walk-panel .kicker { margin: 0; color: #c4491d; letter-spacing: .04em; text-transform: uppercase; font-size: 12px; font-weight: 800; }
+    #walk-panel .meta { color: #5c5148; margin: 0 0 8px; }
     #walk-panel ul { margin: 8px 0 0; padding-left: 18px; }
     #walk-panel li { margin: 6px 0; line-height: 1.35; }
-    #walk-touch { position: fixed; inset: 0; z-index: 2550; pointer-events: none; }
-    #walk-joystick { pointer-events: auto; position: absolute; left: 16px; bottom: 16px; width: 118px; height: 118px; border-radius: 50%; border: 2px solid rgba(0,255,65,.75); background: rgba(0,0,0,.28); touch-action: none; }
-    #walk-joystick-knob { position: absolute; left: 50%; top: 50%; width: 46px; height: 46px; margin: -23px 0 0 -23px; border-radius: 50%; background: rgba(0,255,65,.88); }
-    #walk-lookpad { pointer-events: auto; position: absolute; right: 0; top: 64px; width: 52%; height: calc(100% - 190px); touch-action: none; }
+    #walk-hud.coarse #drive-speed { top: 14px; left: 12px; transform: none; }
+    #walk-hud.coarse #walk-actions { bottom: 150px; }
+    #walk-hud.coarse #walk-hint { top: 64px; bottom: auto; left: 12px; right: 12px; transform: none; }
+    #walk-hud.coarse #walk-panel { max-height: 34vh; }
+    #walk-touch, #drive-touch { position: fixed; inset: 0; z-index: 2600; pointer-events: none; }
+    #walk-joystick, #drive-joystick { pointer-events: auto; position: absolute; left: 16px; bottom: 16px; width: 124px; height: 124px; border-radius: 50%; border: 3px solid #241c18; background: rgba(255,248,238,.78); touch-action: none; box-shadow: 3px 3px 0 #241c18; }
+    #walk-joystick-knob, #drive-joystick-knob { position: absolute; left: 50%; top: 50%; width: 48px; height: 48px; margin: -24px 0 0 -24px; border-radius: 50%; background: #ff5a36; border: 3px solid #241c18; }
+    #walk-lookpad { pointer-events: auto; position: absolute; right: 0; top: 64px; width: 46%; height: calc(100% - 210px); touch-action: none; }
+    #drive-pedals { position: absolute; right: 16px; bottom: 16px; display: flex; flex-direction: column; gap: 10px; }
+    #drive-go, #drive-stop { pointer-events: auto; width: 96px; height: 64px; border-radius: 16px; font-size: 16px; }
+    #drive-go { background: #8ef0b0; }
+    #drive-stop { background: #ffb088; }
   `;
   document.head.appendChild(style);
 }

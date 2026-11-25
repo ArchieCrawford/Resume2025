@@ -53,9 +53,15 @@ class HackerDeskApp {
     // Setup terminal with resume data
     this.terminal = new Terminal(this.resumeData);
     this.terminal.updatePrompt(); // Update prompt with user's name
-    this.terminal.setWalkHandler(() => this.enterWalk());
+    this.terminal.setWalkHandler(() => this.goOutside());
     this.terminal.setCreditsHandler(() => openCredits());
-    document.getElementById('walk-btn')?.addEventListener('click', () => this.enterWalk());
+    document.getElementById('walk-btn')?.addEventListener('click', () => this.goOutside());
+    document.getElementById('go-outside')?.addEventListener('click', () => this.goOutside());
+    document.getElementById('term-close')?.addEventListener('click', (event) => {
+      event.stopPropagation();
+      this.goOutside();
+    });
+    this.container.addEventListener('pointerdown', (event) => this.onDesktopClick(event));
     document.getElementById('credits-btn')?.addEventListener('click', () => openCredits());
     
     // Setup resume viewer
@@ -190,7 +196,18 @@ class HackerDeskApp {
     }, 400);
   }
 
-  async enterWalk(force3d = false) {
+  goOutside() {
+    this.enterWalk(false, { drive: true });
+  }
+
+  onDesktopClick(event) {
+    if (this.mode !== 'desk' || !this.isReady || !this.terminal.isVisible()) return;
+    const target = event.target instanceof Element ? event.target : event.target?.parentElement;
+    if (!target || target.closest('button, a, input, textarea, #terminal-overlay, #resume-overlay, #credits-overlay, #ui-buttons')) return;
+    this.goOutside();
+  }
+
+  async enterWalk(force3d = false, options = {}) {
     if (this.mode === 'loading') return;
     const pref = prefersFallback();
     if (!force3d && pref.fallback) {
@@ -219,7 +236,7 @@ class HackerDeskApp {
       }
       this.hideLoader();
       this.mode = 'world';
-      this.world.enter();
+      this.world.enter(options);
     } catch (error) {
       console.error(error);
       this.hideLoader();

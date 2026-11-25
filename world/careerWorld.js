@@ -723,7 +723,7 @@ export class CareerWorld {
     return !!document.getElementById('credits-overlay')?.classList.contains('visible');
   }
 
-  enter() {
+  enter(options = {}) {
     this.active = true;
     this.hud.classList.add('visible');
     this.panel.classList.remove('visible');
@@ -736,8 +736,8 @@ export class CareerWorld {
     this.kart.spawn(this.spawn.x, 0.58, this.spawn.z, this.spawn.yaw);
     this.upsideT = 0;
     this.seat();
-    this.showHint('Stand up and walk to the kart, or start driving. Esc returns to the terminal.');
-    if (this.autodrive) this.startDriving();
+    if (options.drive || this.autodrive) this.startDriving();
+    else this.showHint('Stand up and walk to the kart, or start driving. Esc returns to the terminal.');
     this.applyRenderer(true);
     this.updateChrome();
   }

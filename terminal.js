@@ -43,7 +43,7 @@ export class Terminal {
           // Group commands
           const resumeCommands = ['intro', 'skills', 'experience', 'education', 'contact', 'projects', 'certs'];
           const actionCommands = ['download', 'linkedin', 'github', 'website'];
-          const exploreCommands = ['walk', 'explore'];
+          const exploreCommands = ['outside', 'exit', 'logout', 'quit', 'walk', 'explore'];
           const systemCommands = ['help', 'clear', 'history', 'date', 'whoami', 'credits'];
           
           output += 'Resume Commands:\n';
@@ -114,18 +114,46 @@ export class Terminal {
           return '\nhacker@cyberdesk\n';
         },
       },
-      walk: {
-        description: 'Drive the career circuit',
+      outside: {
+        description: 'Leave the desktop and drive',
         execute: () => {
           if (this.onWalk) this.onWalk();
-          return '\nOpening the circuit. Stand up and hop in the kart, or start driving.\n';
+          return '\nLeaving the desktop.\n';
+        },
+      },
+      exit: {
+        description: 'Leave the desktop and drive',
+        execute: () => {
+          if (this.onWalk) this.onWalk();
+          return '\nLeaving the desktop.\n';
+        },
+      },
+      logout: {
+        description: 'Leave the desktop and drive',
+        execute: () => {
+          if (this.onWalk) this.onWalk();
+          return '\nLeaving the desktop.\n';
+        },
+      },
+      quit: {
+        description: 'Leave the desktop and drive',
+        execute: () => {
+          if (this.onWalk) this.onWalk();
+          return '\nLeaving the desktop.\n';
+        },
+      },
+      walk: {
+        description: 'Leave the desktop and drive',
+        execute: () => {
+          if (this.onWalk) this.onWalk();
+          return '\nLeaving the desktop.\n';
         },
       },
       explore: {
-        description: 'Drive the career circuit',
+        description: 'Leave the desktop and drive',
         execute: () => {
           if (this.onWalk) this.onWalk();
-          return '\nOpening the circuit. Stand up and hop in the kart, or start driving.\n';
+          return '\nLeaving the desktop.\n';
         },
       },
       credits: {
@@ -437,6 +465,10 @@ export class Terminal {
         this.prompt.textContent = `${username}@portfolio $`;
       }
     }
+  }
+
+  isVisible() {
+    return this.overlay.classList.contains('visible');
   }
 
   show() {

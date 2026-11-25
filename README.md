@@ -22,7 +22,7 @@ An immersive 3D web experience featuring a stylized hacker desk environment with
 - `experience` - Browse work history with dates and highlights
 - `education` - See educational background
 - `projects` - View personal/side projects (if defined in resume.json)
-- `walk` or `explore` - Leave the desk for a toy career circuit (also the **Drive the career** button). Stand up and hop into the kart, or start driving. Jobs from `resume.json` are landmarks along the road, oldest first, and driving into one opens that role. `credits` lists the 3D asset licenses. Esc, or **Back to terminal**, returns here. Reduced motion or a very low-power device gets a text list instead of the 3D scene.
+- The Linux desktop is the front door. **Go outside**, the terminal window’s close button, a click on the room around the terminal, or `outside` / `exit` / `logout` / `quit` / `walk` / `explore` leaves that desktop and drops you in the kart. Jobs from `resume.json` are landmarks along the road, oldest first. Esc, or **Back to terminal**, returns to the desktop. Reduced motion or a very low-power device gets a text list instead of the 3D scene.
 - `certs` - View certifications (if defined in resume.json)
 - `contact` - Get contact information
 - `download` - Download resume PDF

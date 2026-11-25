@@ -22,6 +22,7 @@ An immersive 3D web experience featuring a stylized hacker desk environment with
 - `experience` - Browse work history with dates and highlights
 - `education` - See educational background
 - `projects` - View personal/side projects (if defined in resume.json)
+- `walk` or `explore` - Leave the desk and walk a neighborhood where each job is a building (also the **Walk the career** button). `credits` lists the 3D asset licenses. Esc, or **Back to terminal**, returns here. Reduced motion or a very low-power device gets a text list instead of the 3D scene.
 - `certs` - View certifications (if defined in resume.json)
 - `contact` - Get contact information
 - `download` - Download resume PDF
@@ -76,7 +77,10 @@ Type any alias and it will automatically execute the target command!
 ├── resumeViewer.js     # Resume overlay component
 ├── config.js           # Configuration constants
 ├── resume.json         # Resume data (single source of truth)
-└── resume.pdf          # Downloadable PDF resume
+├── resume.pdf          # Downloadable PDF resume
+├── CREDITS.md          # Licenses for the neighborhood models
+├── world/              # Lazy-loaded walkable neighborhood
+└── assets/world/       # Compressed glTF, sky, and ground texture
 ```
 
 ## Customization

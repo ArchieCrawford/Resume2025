@@ -40,11 +40,11 @@ function build(resume, reason) {
     <div class="fallback-card" role="document" aria-labelledby="fallback-title">
       <div class="fallback-bar">
         <button type="button" id="fallback-back">Back to terminal</button>
-        <button type="button" id="fallback-try3d">Try the 3D neighborhood</button>
+        <button type="button" id="fallback-try3d">Try the 3D drive</button>
       </div>
       <h1 id="fallback-title">${esc(resume.identity?.name || 'Career')} — text neighborhood</h1>
       <p class="fallback-reason">${esc(reason)}</p>
-      <p>The same jobs as the walkable street, oldest first. This view does not start a 3D scene.</p>
+      <p>The same jobs as the driveable circuit, oldest first. This view does not start a 3D scene.</p>
       <h2>Experience</h2>
       ${jobHtml || '<p>No experience listed.</p>'}
       <h2>Education</h2>

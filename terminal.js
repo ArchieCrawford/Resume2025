@@ -115,17 +115,17 @@ export class Terminal {
         },
       },
       walk: {
-        description: 'Walk the career neighborhood',
+        description: 'Drive the career circuit',
         execute: () => {
           if (this.onWalk) this.onWalk();
-          return '\nOpening the neighborhood. Stand up, then walk out to the street.\n';
+          return '\nOpening the circuit. Stand up and hop in the kart, or start driving.\n';
         },
       },
       explore: {
-        description: 'Walk the career neighborhood',
+        description: 'Drive the career circuit',
         execute: () => {
           if (this.onWalk) this.onWalk();
-          return '\nOpening the neighborhood. Stand up, then walk out to the street.\n';
+          return '\nOpening the circuit. Stand up and hop in the kart, or start driving.\n';
         },
       },
       credits: {

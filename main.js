@@ -154,12 +154,12 @@ class HackerDeskApp {
     
     // Show UI buttons after a short delay
     setTimeout(() => {
-      this.uiButtons.classList.add('visible');
+      if (this.mode === 'desk') this.uiButtons.classList.add('visible');
     }, 2000);
     
     // Show terminal after camera animation completes
     setTimeout(() => {
-      this.terminal.show();
+      if (this.mode === 'desk') this.terminal.show();
     }, 3500); // Slightly after camera animation
   }
 
@@ -195,15 +195,15 @@ class HackerDeskApp {
     const pref = prefersFallback();
     if (!force3d && pref.fallback) {
       this.openTextNeighborhood(pref.reduce
-        ? 'Reduced motion is on, so this is the text version of the neighborhood.'
-        : 'This device looks low-power, so this is the text version of the neighborhood.');
+        ? 'Reduced motion is on, so this is the text version of the circuit.'
+        : 'This device looks low-power, so this is the text version of the circuit.');
       return;
     }
     hideFallback();
     this.mode = 'loading';
     this.terminal.hide();
     this.uiButtons.classList.remove('visible');
-    this.showLoader('Loading the neighborhood…');
+    this.showLoader('Loading the career circuit…');
     try {
       if (!this.world) {
         const { CareerWorld } = await import('./world/careerWorld.js');
@@ -214,7 +214,7 @@ class HackerDeskApp {
           onCredits: () => openCredits(),
         });
         await this.world.load((progress) => {
-          this.showLoader(`Loading the neighborhood… ${Math.round(progress * 100)}%`);
+          this.showLoader(`Loading the career circuit… ${Math.round(progress * 100)}%`);
         });
       }
       this.hideLoader();
@@ -226,7 +226,7 @@ class HackerDeskApp {
       this.mode = 'desk';
       this.uiButtons.classList.add('visible');
       this.terminal.show();
-      this.terminal.write('\nThe neighborhood could not be loaded. The terminal still works.\n');
+      this.terminal.write('\nThe circuit could not be loaded. The terminal still works.\n');
     }
   }
 
@@ -253,7 +253,7 @@ class HackerDeskApp {
   animate() {
     requestAnimationFrame(() => this.animate());
 
-    const dt = Math.min(this.clock.getDelta(), 0.05);
+    const dt = Math.min(this.clock.getDelta(), this.mode === 'world' ? 0.1 : 0.05);
     if (!this.isReady) return;
 
     if (this.mode === 'world' && this.world?.ready) {

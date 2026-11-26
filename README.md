@@ -22,7 +22,7 @@ An immersive 3D web experience featuring a stylized hacker desk environment with
 - `experience` - Browse work history with dates and highlights
 - `education` - See educational background
 - `projects` - View personal/side projects (if defined in resume.json)
-- The Linux desktop is the front door. **Go outside**, the terminal window’s close button, a click on the room around the terminal, or `outside` / `exit` / `logout` / `quit` / `walk` / `explore` leaves that desktop and drops you in the kart. Jobs from `resume.json` are landmarks along the road, oldest first. Esc, or **Back to terminal**, returns to the desktop. Reduced motion or a very low-power device gets a text list instead of the 3D scene.
+- The Linux desktop is the front door. **Go outside**, the terminal window’s close button, a click on the room around the terminal, or `outside` / `exit` / `logout` / `quit` / `walk` / `explore` leaves that desktop and drops you in the kart. Jobs from `resume.json` are landmarks along the road, oldest first. Esc, or **Back to terminal**, returns to the desktop. Scroll, pinch, or the on-screen −/+ buttons zoom the chase camera from a close follow out to a wide view of the island. Right-drag (or left-drag while driving) orbits the angle. **Follow**, **Wide**, **Low**, and **Top** — or keys `1`–`4` and `C` — snap to chase, overview, low cinematic, and top-down. Reduced motion or a very low-power device gets a text list instead of the 3D scene.
 - `certs` - View certifications (if defined in resume.json)
 - `contact` - Get contact information
 - `download` - Download resume PDF

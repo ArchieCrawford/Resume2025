@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { WORLD_VIEW } from './chaseCamera.js';
 import { layoutCircuit, sampleCurve, mailboxPanel, ROAD_WIDTH } from './circuit.js';
 import {
   addDynamicBox,
@@ -93,14 +94,15 @@ export function buildIsland(ctx) {
 }
 
 function addSky(scene) {
-  const geo = new THREE.SphereGeometry(480, 16, 10);
+  const radius = WORLD_VIEW.skyRadius;
+  const geo = new THREE.SphereGeometry(radius, 24, 14);
   const colors = [];
   const pos = geo.attributes.position;
   const top = new THREE.Color('#79b7ff');
   const mid = new THREE.Color('#d7ecff');
   const bot = new THREE.Color('#ffe3bf');
   for (let i = 0; i < pos.count; i += 1) {
-    const y = pos.getY(i) / 480;
+    const y = pos.getY(i) / radius;
     const col = y > 0
       ? mid.clone().lerp(top, Math.min(1, y * 1.2))
       : mid.clone().lerp(bot, Math.min(1, -y * 1.35));
@@ -125,15 +127,18 @@ function addGround(scene, bounds, mobile) {
   const sz = bounds.maxZ - bounds.minZ;
   const yardMinZ = 4.05;
   const islandZ = bounds.maxZ - yardMinZ;
+  // Wide enough that a fully zoomed-out camera still meets water at the sky, not a void.
+  const waterSize = Math.max(sx, sz) + WORLD_VIEW.skyRadius * 2 + 800;
   const water = new THREE.Mesh(
-    new THREE.PlaneGeometry(sx + 180, sz + 180),
+    new THREE.PlaneGeometry(waterSize, waterSize),
     new THREE.MeshLambertMaterial({ color: '#73c6ef' }),
   );
   water.rotation.x = -Math.PI / 2;
   water.position.set(cx, -0.16, cz);
+  water.frustumCulled = false;
   scene.add(water);
   const sand = new THREE.Mesh(
-    new THREE.PlaneGeometry(sx + 14, sz + 14),
+    new THREE.PlaneGeometry(sx + 70, sz + 70),
     new THREE.MeshLambertMaterial({ color: '#efd3a1' }),
   );
   sand.rotation.x = -Math.PI / 2;

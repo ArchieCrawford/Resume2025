@@ -3,6 +3,22 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from './vendor/meshopt_decoder.module.js';
 import { WalkControls } from './controls.js';
 import { DriveControls } from './driveControls.js';
+import {
+  CAMERA_PRESETS,
+  WORLD_VIEW,
+  applyPreset,
+  cameraNear,
+  chasePose,
+  createChaseRig,
+  cyclePreset,
+  flattenHeading,
+  fogForDistance,
+  nudgeZoom,
+  orbitRig,
+  pinchZoom,
+  shadowExtent,
+  wheelZoom,
+} from './chaseCamera.js';
 import { describeStops } from './circuit.js';
 import { buildIsland } from './scenery.js';
 import { createKartVisual } from './kartView.js';
@@ -33,7 +49,13 @@ export class CareerWorld {
     this.resume = resume;
     this.hooks = hooks;
     this.scene = new THREE.Scene();
-    this.camera = new THREE.PerspectiveCamera(58, window.innerWidth / window.innerHeight, 0.15, 700);
+    this.camera = new THREE.PerspectiveCamera(
+      50,
+      window.innerWidth / window.innerHeight,
+      0.12,
+      WORLD_VIEW.cameraFar,
+    );
+    this.chase = createChaseRig();
     this.controls = null;
     this.loader = new GLTFLoader();
     this.loader.setMeshoptDecoder(MeshoptDecoder);
@@ -61,8 +83,19 @@ export class CareerWorld {
     this._fpsFrames = 0;
     this._fpsAcc = 0;
     this._camLook = new THREE.Vector3();
+    this._camDesired = new THREE.Vector3();
+    this._lookDesired = new THREE.Vector3();
+    this._fwd = new THREE.Vector3();
+    this._anchor = new THREE.Vector3();
+    this._camResolved = new THREE.Vector3();
+    this._rayDir = new THREE.Vector3();
+    this._rayNormal = new THREE.Vector3();
+    this._raycaster = new THREE.Raycaster();
     this._saved = null;
     this._vec = new THREE.Vector3();
+    this._pointers = new Map();
+    this._orbit = null;
+    this._pinch = 0;
     this._onKey = (event) => this.onKey(event);
     const params = new URLSearchParams(location.search);
     this.autodrive = params.has('autodrive');
@@ -105,6 +138,7 @@ export class CareerWorld {
     this.drive = new DriveControls();
     this.drive.setVisible(false);
     document.addEventListener('keydown', this._onKey);
+    this.bindCameraInput();
     this.ready = true;
     if (this.debug) window.__career = this;
   }
@@ -137,16 +171,18 @@ export class CareerWorld {
   }
 
   buildScene() {
-    this.scene.fog = new THREE.Fog(0xd5e7fb, 80, 250);
+    const openingFog = fogForDistance(this.chase.distance);
+    this.scene.fog = new THREE.Fog(0xd7ecff, openingFog.near, openingFog.far);
     this.scene.add(new THREE.HemisphereLight(0xc5e4ff, 0xf0c99a, 0.95));
     this.scene.add(new THREE.AmbientLight(0xfff6ea, 0.3));
     this.sun = new THREE.DirectionalLight(0xfff4e2, 1.22);
     this.sun.position.set(28, 40, 14);
     if (!this.mobile) {
       this.sun.castShadow = true;
-      this.sun.shadow.mapSize.set(1024, 1024);
-      this.sun.shadow.camera.near = 1;
-      this.sun.shadow.camera.far = 70;
+      this.sun.shadow.mapSize.set(2048, 2048);
+      this.sun.shadow.camera.near = 0.5;
+      this.sun.shadow.camera.far = 90;
+      this.sun.shadow.normalBias = 0.04;
       this.sun.shadow.camera.left = -18;
       this.sun.shadow.camera.right = 18;
       this.sun.shadow.camera.top = 18;
@@ -422,6 +458,10 @@ export class CareerWorld {
     this.controls && (this.controls.yaw = 0);
     this.controls && (this.controls.pitch = 0);
     this.poseSitting();
+    this.camera.near = 0.12;
+    this.camera.far = WORLD_VIEW.cameraFar;
+    this.camera.fov = CAMERA_PRESETS[0].fov;
+    this.camera.updateProjectionMatrix();
     this.applySeatCamera();
   }
 
@@ -487,8 +527,8 @@ export class CareerWorld {
     this.upsideT = 0;
     this._camLook.set(this.kart.chassis.position.x, 1.2, this.kart.chassis.position.z);
     const hint = this.mobile
-      ? 'Joystick steers and accelerates. Pedals work too. Esc returns to the terminal.'
-      : 'WASD or arrows drive. Space brakes. R uprights the kart. E hops out. Esc returns to the terminal.';
+      ? 'Joystick steers and accelerates. Pedals work too. Pinch or −/+ zooms. Camera buttons change the angle. Esc returns to the terminal.'
+      : 'WASD or arrows drive. Space brakes. R uprights the kart. E hops out. Scroll zooms, drag orbits, 1–4 angles. Esc returns to the terminal.';
     this.showHint(hint);
     if (document.activeElement && document.activeElement.tagName === 'BUTTON') document.activeElement.blur();
     this.updateChrome();
@@ -550,6 +590,13 @@ export class CareerWorld {
     this.outButton.classList.toggle('hidden', !driving);
     this.speedEl.classList.toggle('hidden', !driving);
     if (driving) this.speedEl.textContent = `${Math.round(Math.abs(this.kart.speedKmh()))} km/h`;
+    const showCam = driving || walking;
+    this.camDock?.classList.toggle('hidden', !showCam);
+    this.camDock?.querySelectorAll('[data-cam]').forEach((button) => {
+      const on = button.dataset.cam === this.chase.presetId;
+      button.classList.toggle('active', on);
+      button.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
     this.controls.setVisible(walking);
     this.drive.setVisible(driving);
   }
@@ -659,6 +706,16 @@ export class CareerWorld {
       </div>
       <p id="walk-hint" class="hidden"></p>
       <aside id="walk-panel" aria-live="polite"></aside>
+      <div id="cam-dock" class="hidden" aria-label="Camera angles">
+        <div id="cam-presets">
+          ${CAMERA_PRESETS.map((preset) => `<button type="button" data-cam="${preset.id}" title="${esc(preset.title)}" aria-pressed="false">${esc(preset.label)}</button>`).join('')}
+        </div>
+        <div id="cam-zoom">
+          <button type="button" id="cam-zoom-out" title="Zoom out (−)" aria-label="Zoom out">−</button>
+          <button type="button" id="cam-zoom-in" title="Zoom in (+)" aria-label="Zoom in">+</button>
+          <span id="cam-note">Drag · scroll · 1–4</span>
+        </div>
+      </div>
     `;
     document.body.appendChild(this.hud);
     this.standButton = this.hud.querySelector('#walk-stand');
@@ -668,6 +725,7 @@ export class CareerWorld {
     this.speedEl = this.hud.querySelector('#drive-speed');
     this.hint = this.hud.querySelector('#walk-hint');
     this.panel = this.hud.querySelector('#walk-panel');
+    this.camDock = this.hud.querySelector('#cam-dock');
     const bind = (button, fn) => button.addEventListener('click', (event) => {
       event.currentTarget.blur();
       fn();
@@ -679,6 +737,11 @@ export class CareerWorld {
     this.hud.querySelector('#walk-exit').addEventListener('click', () => this.hooks.onExit());
     this.hud.querySelector('#walk-list').addEventListener('click', () => this.hooks.onFallback());
     this.hud.querySelector('#walk-credits').addEventListener('click', () => this.hooks.onCredits());
+    this.camDock.querySelectorAll('[data-cam]').forEach((button) => {
+      bind(button, () => this.setCameraPreset(button.dataset.cam));
+    });
+    bind(this.camDock.querySelector('#cam-zoom-out'), () => nudgeZoom(this.chase, 1));
+    bind(this.camDock.querySelector('#cam-zoom-in'), () => nudgeZoom(this.chase, -1));
   }
 
   onKey(event) {
@@ -716,7 +779,136 @@ export class CareerWorld {
     if (event.code === 'KeyR' && this.state === 'drive') {
       event.preventDefault();
       this.recoverKart();
+      return;
     }
+    if (this.state !== 'walk' && this.state !== 'drive') return;
+    if (event.metaKey || event.ctrlKey || event.altKey) return;
+    const presetKey = {
+      Digit1: 'follow',
+      Numpad1: 'follow',
+      Digit2: 'wide',
+      Numpad2: 'wide',
+      Digit3: 'low',
+      Numpad3: 'low',
+      Digit4: 'top',
+      Numpad4: 'top',
+    }[event.code];
+    if (presetKey) {
+      event.preventDefault();
+      this.setCameraPreset(presetKey);
+      return;
+    }
+    if (event.code === 'KeyC') {
+      if (event.repeat) return;
+      event.preventDefault();
+      cyclePreset(this.chase);
+      this.updateChrome();
+      return;
+    }
+    if (event.code === 'Minus' || event.code === 'NumpadSubtract') {
+      event.preventDefault();
+      nudgeZoom(this.chase, 1);
+      return;
+    }
+    if (event.code === 'Equal' || event.code === 'NumpadAdd') {
+      event.preventDefault();
+      nudgeZoom(this.chase, -1);
+    }
+  }
+
+  setCameraPreset(id) {
+    if (!applyPreset(this.chase, id)) return;
+    this.updateChrome();
+  }
+
+  cameraGesturesAllowed() {
+    if (!this.active || this.creditsOpen()) return false;
+    return this.state === 'walk' || this.state === 'drive';
+  }
+
+  bindCameraInput() {
+    const dom = this.renderer.domElement;
+    dom.style.touchAction = 'none';
+    this._onWheel = (event) => this.onWheel(event);
+    this._onPointerDown = (event) => this.onPointerDown(event);
+    this._onPointerMove = (event) => this.onPointerMove(event);
+    this._onPointerUp = (event) => this.onPointerUp(event);
+    this._onContext = (event) => {
+      if (this.cameraGesturesAllowed()) event.preventDefault();
+    };
+    document.addEventListener('wheel', this._onWheel, { passive: false });
+    dom.addEventListener('pointerdown', this._onPointerDown);
+    dom.addEventListener('pointermove', this._onPointerMove);
+    dom.addEventListener('pointerup', this._onPointerUp);
+    dom.addEventListener('pointercancel', this._onPointerUp);
+    dom.addEventListener('contextmenu', this._onContext);
+  }
+
+  onWheel(event) {
+    if (!this.cameraGesturesAllowed()) return;
+    if (event.target instanceof Element && event.target.closest('#walk-panel')) return;
+    event.preventDefault();
+    const raw = event.deltaMode === 1 ? event.deltaY * 18 : event.deltaMode === 2 ? event.deltaY * 80 : event.deltaY;
+    wheelZoom(this.chase, raw);
+  }
+
+  onPointerDown(event) {
+    if (!this.cameraGesturesAllowed()) return;
+    if (isCameraBlockedTarget(event.target)) return;
+    this._pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    if (this._pointers.size >= 2) {
+      this._pinch = pointerSpan(this._pointers);
+      this._orbit = null;
+      return;
+    }
+    const driving = this.state === 'drive';
+    const orbit = (driving && event.button === 0) || event.button === 1 || event.button === 2;
+    if (!orbit) return;
+    this._orbit = {
+      id: event.pointerId,
+      x: event.clientX,
+      y: event.clientY,
+      accX: 0,
+      accY: 0,
+      armed: false,
+    };
+    this.renderer.domElement.setPointerCapture?.(event.pointerId);
+    event.preventDefault();
+  }
+
+  onPointerMove(event) {
+    const tracked = this._pointers.get(event.pointerId);
+    if (tracked) {
+      tracked.x = event.clientX;
+      tracked.y = event.clientY;
+    }
+    if (this._pointers.size >= 2 && this._pinch > 0) {
+      const span = pointerSpan(this._pointers);
+      pinchZoom(this.chase, this._pinch, span);
+      this._pinch = span;
+      return;
+    }
+    if (!this._orbit || this._orbit.id !== event.pointerId) return;
+    const dx = event.clientX - this._orbit.x;
+    const dy = event.clientY - this._orbit.y;
+    this._orbit.x = event.clientX;
+    this._orbit.y = event.clientY;
+    if (!this._orbit.armed) {
+      this._orbit.accX += dx;
+      this._orbit.accY += dy;
+      if (Math.hypot(this._orbit.accX, this._orbit.accY) < 3) return;
+      this._orbit.armed = true;
+      orbitRig(this.chase, this._orbit.accX, this._orbit.accY);
+      this.updateChrome();
+      return;
+    }
+    if (dx || dy) orbitRig(this.chase, dx, dy);
+  }
+
+  onPointerUp(event) {
+    this._pointers.delete(event.pointerId);
+    if (this._pointers.size < 2) this._pinch = 0;
+    if (this._orbit?.id === event.pointerId) this._orbit = null;
   }
 
   creditsOpen() {
@@ -735,6 +927,10 @@ export class CareerWorld {
     this.resetProps();
     this.kart.spawn(this.spawn.x, 0.58, this.spawn.z, this.spawn.yaw);
     this.upsideT = 0;
+    applyPreset(this.chase, 'follow');
+    this._orbit = null;
+    this._pointers.clear();
+    this._pinch = 0;
     this.seat();
     if (options.drive || this.autodrive) this.startDriving();
     else this.showHint('Stand up and walk to the kart, or start driving. Esc returns to the terminal.');
@@ -750,6 +946,9 @@ export class CareerWorld {
     this.controls.setVisible(false);
     this.drive.setVisible(false);
     this.hud.classList.remove('visible');
+    this._orbit = null;
+    this._pointers.clear();
+    this._pinch = 0;
     this.applyRenderer(false);
   }
 
@@ -815,7 +1014,7 @@ export class CareerWorld {
 
     if (this.state === 'seated') this.applySeatCamera();
     else if (this.state === 'rising') {
-      this.applyFollowCamera();
+      this.applyFollowCamera(dt, true);
       const followPos = this.camera.position.clone();
       const followQuat = this.camera.quaternion.clone();
       this.applySeatCamera();
@@ -825,13 +1024,15 @@ export class CareerWorld {
       this.camera.position.lerp(followPos, ease);
       this.camera.quaternion.slerp(followQuat, ease);
     } else if (driving) this.applyDriveCamera(dt);
-    else this.applyFollowCamera();
+    else this.applyFollowCamera(dt);
 
     this.mixer?.update(dt);
     const sky = this.scene.getObjectByName('career-sky');
     if (sky) sky.position.copy(this.camera.position);
     const focus = driving ? this.kart.chassis.position : this.player.position;
-    this.sun.position.set(focus.x + 16, 34, focus.z + 10);
+    const extent = this.syncAtmosphere(this.chase.distance);
+    const lift = Math.max(36, extent * 1.15);
+    this.sun.position.set(focus.x + lift * 0.4, lift, focus.z + lift * 0.24);
     this.sun.target.position.set(focus.x, 0, focus.z);
     this.sun.target.updateMatrixWorld();
     this.updateProximity();
@@ -929,39 +1130,154 @@ export class CareerWorld {
     this.camera.lookAt(0, 0.95, -1.45);
   }
 
-  applyFollowCamera() {
-    this.aimFov(62);
-    const yaw = this.controls.yaw;
-    const pitch = this.controls.pitch;
-    const dist = 2.7;
-    const px = this.player.position.x;
-    const pz = this.player.position.z;
-    const fx = Math.sin(yaw);
-    const fz = Math.cos(yaw);
-    this.camera.position.set(px - fx * dist, 1.72 - pitch * 0.35, pz - fz * dist);
-    this.camera.lookAt(px + fx * 1.4, 1.28 + Math.sin(pitch) * 1.6, pz + fz * 1.4);
+  applyFollowCamera(dt, immediate = false) {
+    const yaw = this.controls?.yaw || 0;
+    this.applyChaseCamera(
+      dt,
+      this.player.position,
+      { x: Math.sin(yaw), z: Math.cos(yaw) },
+      this.controls?.pitch || 0,
+      immediate,
+    );
   }
 
   applyDriveCamera(dt) {
     if (this.lockCamera) return;
-    this.aimFov(this.reduced ? 50 : 42);
-    const forward = new THREE.Vector3(1, 0, 0).applyQuaternion(this.kartView.root.quaternion);
-    const pos = this.kartView.root.position;
-    const desired = pos.clone().addScaledVector(forward, -9.4);
-    desired.y = pos.y + 8.8;
-    const look = pos.clone().addScaledVector(forward, 5.2);
-    look.y = pos.y + 0.9;
-    const k = 1 - Math.exp(-(this.reduced ? 14 : 3.2) * dt);
-    if (this._camLook.lengthSq() < 0.001) this._camLook.copy(look);
-    this.camera.position.lerp(desired, k);
-    this._camLook.lerp(look, k);
+    this._fwd.set(1, 0, 0).applyQuaternion(this.kartView.root.quaternion);
+    this.applyChaseCamera(
+      dt,
+      this.kartView.root.position,
+      flattenHeading(this._fwd.x, this._fwd.z),
+      0,
+      false,
+    );
+  }
+
+  applyChaseCamera(dt, origin, forward, pitchAdd, immediate) {
+    const pose = chasePose(origin, forward, this.chase, pitchAdd);
+    this.frameProjection(this.reduced ? Math.min(pose.fov, 50) : pose.fov, this.chase.distance);
+    this.resolveChase(pose.camera, origin);
+    const snap = immediate || this._camLook.lengthSq() < 0.001;
+    this._camDesired.copy(this._camResolved);
+    const desiredBack = Math.hypot(pose.camera.x - origin.x, pose.camera.z - origin.z);
+    const actualBack = Math.hypot(this._camResolved.x - origin.x, this._camResolved.z - origin.z);
+    const squeezed = desiredBack > 1 && actualBack < desiredBack * 0.75;
+    if (squeezed) {
+      // The driveway house pulled the lens in. Aim just past the kart so it
+      // stays in the lower third instead of falling out of frame.
+      this._camDesired.y = origin.y + 3.15;
+      const ahead = Math.max(3.4, actualBack);
+      const hx = pose.look.x - origin.x;
+      const hz = pose.look.z - origin.z;
+      const hlen = Math.hypot(hx, hz) || 1;
+      this._lookDesired.set(
+        origin.x + (hx / hlen) * ahead,
+        origin.y + 1.15,
+        origin.z + (hz / hlen) * ahead,
+      );
+    } else {
+      this._lookDesired.set(pose.look.x, pose.look.y, pose.look.z);
+    }
+    if (snap) {
+      this.camera.position.copy(this._camDesired);
+      this._camLook.copy(this._lookDesired);
+    } else {
+      const rate = this._orbit?.armed ? 12 : (this.reduced ? 14 : 3.6);
+      const k = 1 - Math.exp(-rate * Math.max(0.001, dt));
+      this.camera.position.lerp(this._camDesired, k);
+      this._camLook.lerp(this._lookDesired, k);
+    }
     this.camera.lookAt(this._camLook);
   }
 
-  aimFov(target) {
-    if (Math.abs(this.camera.fov - target) < 0.2) return;
-    this.camera.fov += (target - this.camera.fov) * 0.15;
-    this.camera.updateProjectionMatrix();
+  /**
+   * Pull the lens back toward the subject when a wall sits between them,
+   * so the driveway house and plaza buildings cannot fill the frame.
+   * High overview angles clear the roofs and stay put.
+   */
+  resolveChase(camera, origin) {
+    const cam = this._camResolved.set(camera.x, camera.y, camera.z);
+    this._anchor.set(origin.x, origin.y + 1.5, origin.z);
+    this._rayDir.copy(cam).sub(this._anchor);
+    const span = this._rayDir.length();
+    if (span > 0.75 && cam.y < origin.y + 16) {
+      this._raycaster.set(this._anchor, this._rayDir.multiplyScalar(1 / span));
+      this._raycaster.far = span - 0.15;
+      const hit = this._raycaster.intersectObjects(this.scene.children, true)
+        .find((item) => !this.isCamIgnored(item.object) && !this.isGroundLike(item));
+      if (hit && hit.distance < span - 0.35) {
+        const keep = hit.distance > 2.2 ? hit.distance - 1.15 : hit.distance * 0.55;
+        cam.copy(this._anchor).addScaledVector(this._raycaster.ray.direction, keep);
+        const minY = origin.y + 2.5;
+        if (cam.y < minY) cam.y = minY;
+      }
+    }
+    // The driveway house has a door and a roof the chase ray can slip through.
+    // Keep the lens in front of that volume instead of inside it or on the back wall.
+    const house = { minX: -4.6, maxX: 4.6, minZ: -5.4, maxZ: 4.4, roof: 8.6 };
+    const overHouse = cam.y < house.roof
+      && cam.x > house.minX && cam.x < house.maxX
+      && cam.z < house.maxZ && cam.z > house.minZ - 4;
+    if (overHouse) {
+      const front = house.maxZ + 1.35;
+      if (cam.z < front) cam.z = front;
+      if (cam.y < origin.y + 2.6) cam.y = origin.y + 2.6;
+      if (origin.z - cam.z < 2.5) cam.z = origin.z - 2.5;
+    }
+    if (cam.y < 0.85) cam.y = 0.85;
+    return cam;
+  }
+
+  isGroundLike(hit) {
+    if (!hit.face) return false;
+    this._rayNormal.copy(hit.face.normal).transformDirection(hit.object.matrixWorld);
+    return this._rayNormal.y > 0.72;
+  }
+
+  isCamIgnored(object) {
+    let node = object;
+    while (node) {
+      if (node === this.kartView?.root || node === this.player || node === this.blob) return true;
+      if (node.name === 'career-sky') return true;
+      if (this.kartView?.wheels?.includes(node)) return true;
+      node = node.parent;
+    }
+    const material = object.material;
+    if (!material) return false;
+    const list = Array.isArray(material) ? material : [material];
+    return list.some((entry) => entry && (entry.transparent || entry.depthWrite === false));
+  }
+
+  frameProjection(targetFov, distance) {
+    const near = cameraNear(distance);
+    let changed = Math.abs(this.camera.near - near) > 0.02 || this.camera.far !== WORLD_VIEW.cameraFar;
+    this.camera.near = near;
+    this.camera.far = WORLD_VIEW.cameraFar;
+    if (Math.abs(this.camera.fov - targetFov) >= 0.2) {
+      this.camera.fov += (targetFov - this.camera.fov) * 0.15;
+      changed = true;
+    }
+    if (changed) this.camera.updateProjectionMatrix();
+  }
+
+  syncAtmosphere(distance) {
+    const fog = fogForDistance(distance);
+    if (this.scene.fog) {
+      this.scene.fog.near = fog.near;
+      this.scene.fog.far = fog.far;
+    }
+    const extent = shadowExtent(distance, this.mobile);
+    if (this.sun?.castShadow) {
+      const cam = this.sun.shadow.camera;
+      cam.left = -extent;
+      cam.right = extent;
+      cam.top = extent;
+      cam.bottom = -extent;
+      cam.near = 0.5;
+      cam.far = 90 + extent * 2.4;
+      cam.updateProjectionMatrix();
+    }
+    return extent;
   }
 
   focusPoint() {
@@ -1068,6 +1384,18 @@ function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
 
+function isCameraBlockedTarget(target) {
+  return target instanceof Element && !!target.closest(
+    'button, a, input, textarea, #walk-joystick, #drive-joystick, #drive-pedals, #walk-panel, #walk-lookpad, #cam-dock',
+  );
+}
+
+function pointerSpan(pointers) {
+  const pts = [...pointers.values()];
+  if (pts.length < 2) return 0;
+  return Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y) || 1;
+}
+
 function esc(value) {
   return String(value ?? '').replace(/[&<>"']/g, (ch) => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
@@ -1135,6 +1463,15 @@ function ensureStyle() {
     #drive-go, #drive-stop { pointer-events: auto; width: 96px; height: 64px; border-radius: 16px; font-size: 16px; }
     #drive-go { background: #8ef0b0; }
     #drive-stop { background: #ffb088; }
+    #cam-dock { position: absolute; top: 16px; left: 16px; display: flex; flex-direction: column; gap: 6px; align-items: flex-start; max-width: min(440px, calc(100% - 32px)); }
+    #cam-presets, #cam-zoom { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+    #cam-dock button { font-size: 13px; padding: 6px 10px; }
+    #cam-dock button.active { background: #ff5a36; color: #fffaf6; }
+    #cam-zoom button { min-width: 36px; font-size: 18px; line-height: 1; padding: 5px 10px; }
+    #cam-note { font-size: 11px; font-weight: 800; background: rgba(255,248,238,.92); border: 2px solid #241c18; border-radius: 999px; padding: 4px 8px; }
+    #walk-hud.coarse #cam-dock { top: auto; left: auto; right: 16px; bottom: 168px; align-items: flex-end; }
+    #walk-hud.coarse #cam-presets { display: grid; grid-template-columns: 1fr 1fr; }
+    #walk-hud.coarse #cam-note { display: none; }
   `;
   document.head.appendChild(style);
 }
